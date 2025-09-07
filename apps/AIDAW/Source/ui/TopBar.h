@@ -78,26 +78,24 @@ public:
         record.addListener(this);
         addAndMakeVisible(record);
 
-       // Title (absolute center) — editable on single click
-title.setText("AIDAW", juce::dontSendNotification);
-title.setJustificationType(juce::Justification::centred);
-title.setColour(juce::Label::textColourId, juce::Colour(0x88FFFFFF));
-title.setFont(juce::Font(18.0f, juce::Font::bold));
-title.setEditable(true, true, false);
-title.onTextChange = [this]()
-{
-    if (onTitleChanged) onTitleChanged(title.getText());
-};
-addAndMakeVisible(title);
-
+        // Title (absolute center) — editable on single click
+        title.setText("AIDAW", juce::dontSendNotification);
+        title.setJustificationType(juce::Justification::centred);
+        title.setColour(juce::Label::textColourId, juce::Colour(0x88FFFFFF));
+        title.setFont(juce::Font(18.0f, juce::Font::bold));
+        title.setEditable(true, true, false);
+        title.onTextChange = [this]()
+        {
+            if (onTitleChanged) onTitleChanged(title.getText());
+        };
+        addAndMakeVisible(title);
 
         // BPM tight pill
         bpmLabelLeft.setText("BPM", juce::dontSendNotification);
         bpmLabelLeft.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(bpmLabelLeft);
 
-        minusBtn.setButtonText("-");
-        minusBtn.addListener(this);
+        minusBtn.addListener(this); minusBtn.setButtonText("-");
         addAndMakeVisible(minusBtn);
 
         bpmEdit.setText(juce::String(currentBPM, 2), juce::dontSendNotification);
@@ -111,8 +109,7 @@ addAndMakeVisible(title);
         bpmLabelRight.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(bpmLabelRight);
 
-        plusBtn.setButtonText("+");
-        plusBtn.addListener(this);
+        plusBtn.addListener(this); plusBtn.setButtonText("+");
         addAndMakeVisible(plusBtn);
 
         clickToggle.setButtonText("Click");
@@ -121,13 +118,8 @@ addAndMakeVisible(title);
         addAndMakeVisible(clickToggle);
 
         // Window controls
-        btnMin.setButtonText("-");
-        btnMin.addListener(this);
-        addAndMakeVisible(btnMin);
-
-        btnClose.setButtonText("X");
-        btnClose.addListener(this);
-        addAndMakeVisible(btnClose);
+        btnMin.setButtonText("-"); btnMin.addListener(this); addAndMakeVisible(btnMin);
+        btnClose.setButtonText("X"); btnClose.addListener(this); addAndMakeVisible(btnClose);
     }
 
     ~TopBar() override { setLookAndFeel(nullptr); }
@@ -142,14 +134,12 @@ addAndMakeVisible(title);
     std::function<void()>       onClose;
     std::function<void(const juce::String&)> onTitleChanged;
 
-
     // State
     void setPlaying(bool shouldPlay)
     {
         isPlaying = shouldPlay;
 
-        // If armed, never show "Pause" (can't pause recording)
-        const bool showPause = isPlaying && !recordArmed;
+        const bool showPause = isPlaying && !recordArmed; // no pause while armed
         playPause.setButtonText(showPause ? "Pause" : "Play");
 
         playPause.setColour(juce::TextButton::buttonColourId,
@@ -232,29 +222,25 @@ addAndMakeVisible(title);
         auto pillBlock = r.removeFromRight(pillW + gap + clickW);
         bpmPillBounds  = pillBlock.removeFromLeft(pillW);
 
-        // Title ABS centered (never overlaps)
+        // Title ABS centered
         const int titleW = 200, titleH = btnH;
         const int cx     = getWidth() / 2;
         title.setBounds(cx - titleW/2, vpad, titleW, titleH);
 
-        // Tight layout inside pill
-       // Sleeker BPM pill layout
-auto inside = bpmPillBounds.reduced(12, 8);
+        // Sleeker BPM pill layout
+        auto inside = bpmPillBounds.reduced(12, 8);
+        int totalW = inside.getWidth();
+        int btnW   = 28;
+        int labelW = 42;
+        int editW  = totalW - (btnW * 2 + labelW * 2 + 16);
 
-// proportions instead of fixed widths → smoother look
-int totalW = inside.getWidth();
-int btnW   = 28;
-int labelW = 42;
-int editW  = totalW - (btnW * 2 + labelW * 2 + 16); // flexible center
-
-bpmLabelLeft.setBounds(inside.removeFromLeft(labelW));
-minusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
-inside.removeFromLeft(4);
-bpmEdit.setBounds(inside.removeFromLeft(editW).reduced(2, 0));
-inside.removeFromLeft(4);
-bpmLabelRight.setBounds(inside.removeFromLeft(labelW));
-plusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
-
+        bpmLabelLeft.setBounds(inside.removeFromLeft(labelW));
+        minusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
+        inside.removeFromLeft(4);
+        bpmEdit.setBounds(inside.removeFromLeft(editW).reduced(2, 0));
+        inside.removeFromLeft(4);
+        bpmLabelRight.setBounds(inside.removeFromLeft(labelW));
+        plusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
 
         pillBlock.removeFromLeft(gap);
         clickToggle.setBounds(pillBlock.removeFromLeft(clickW));
@@ -267,7 +253,6 @@ private:
         if (b == &playPause)
         {
             if (recordArmed && isPlaying) return; // no pause while armed
-
             if (!isPlaying) { setPlaying(true);  if (onPlayPause) onPlayPause(true);  }
             else            { setPlaying(false); if (onPlayPause) onPlayPause(false); }
         }

@@ -3,7 +3,6 @@
 #include "ui/TopBar.h"
 #include "ui/Arranger.h"
 
-
 /* ---------------- Simple timeline playback that mixes all clips ----------------
    - No time-stretching; clips play at natural speed, positioned by startBeats.
    - If an audio file's sample-rate differs from the device, we resample on the fly.
@@ -62,16 +61,13 @@ public:
             const int64 clipLen    = (int64) std::llround(model->lengthBeats * secPerBeat * deviceSampleRate);
             const int64 clipEnd    = clipStart + clipLen;
 
-            // overlap with current block?
             const int64 segStart = std::max(blockStart, clipStart);
             const int64 segEnd   = std::min(blockEnd,   clipEnd);
             const int   segLen   = (int) std::max<int64>(0, segEnd - segStart);
             if (segLen <= 0) continue;
 
-            // where to put it in output buffer
             const int outOffset = (int) (segStart - blockStart);
 
-            // position inside the source (in the reader's sample-rate domain)
             const double ratio = resampleRatios[i]; // inSamples per outSample
             const int64 clipPosOutSamples = segStart - clipStart;
             const int64 clipPosInSamples  = (int64) std::llround((double)clipPosOutSamples * ratio);
@@ -82,7 +78,6 @@ public:
             juce::AudioSourceChannelInfo segInfo(&scratch, 0, segLen);
             resamplers[i]->getNextAudioBlock(segInfo);
 
-            // mix into destination
             for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
             {
                 const float* src = scratch.getReadPointer(juce::jmin(ch, scratch.getNumChannels()-1));
@@ -105,9 +100,9 @@ private:
             {
                 if (!c.file.existsAsFile()) continue;
 
-                if (auto* raw = fmt.createReaderFor(c.file))  // ownership passed to readerSource
+                if (auto* raw = fmt.createReaderFor(c.file))
                 {
-                    auto src = std::make_unique<juce::AudioFormatReaderSource>(raw, true /* take ownership */);
+                    auto src = std::make_unique<juce::AudioFormatReaderSource>(raw, true);
                     auto res = std::make_unique<juce::ResamplingAudioSource>(src.get(), false, 2);
 
                     const double ratio = raw->sampleRate / deviceSampleRate; // inSamples per outSample
@@ -128,13 +123,12 @@ private:
     std::vector<TrackModel>& tracks;
     double& bpmRef;
 
-    juce::AudioFormatManager fmt;   // non-copyable; we register in ctor
+    juce::AudioFormatManager fmt;
     double deviceSampleRate { 0.0 };
     bool   playing { false };
     bool   needsRebuild { true };
     int64  playheadSamples { 0 };
 
-    // per-clip playback chain
     std::vector<std::unique_ptr<juce::AudioFormatReaderSource>> sources;
     std::vector<std::unique_ptr<juce::ResamplingAudioSource>>   resamplers;
     std::vector<double>                                         resampleRatios;
@@ -173,7 +167,6 @@ public:
             {
                 if (samplesUntilTick <= 0)
                 {
-                    // short 1kHz sine burst (~8ms)
                     burstSamplesRemaining = (int)(0.008 * sampleRate);
                     samplesUntilTick += (int)samplesPerBeat;
                 }
@@ -195,7 +188,6 @@ public:
         }
     }
 
-    // Controls
     void setBpm(double bpmIn)      { bpm = juce::jlimit(40.0, 300.0, bpmIn); updateTiming(); }
     void setPlaying(bool isOn)     { playing = isOn; }
     void setClickEnabled(bool on)  { clickEnabled = on; }
@@ -234,13 +226,11 @@ public:
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
 
-        // audio graph
         mixer.addInputSource(&metronome, false);
         mixer.addInputSource(&timeline,  false);
 
         arranger.onProjectChanged = [this] { timeline.requestRebuild(); };
 
-        // Transport & metronome + timeline
         topBar.onPlayPause = [this](bool isPlaying)
         {
             if (recordArmed && playing) return;
@@ -265,7 +255,6 @@ public:
             if (playing) topBar.setPlaying(true);
         };
 
-        // Sync BPM + snap with Arranger
         topBar.onTempoChanged = [this](double bpm)
         {
             currentBpm = bpm;
@@ -273,14 +262,12 @@ public:
             arranger.setBPM(bpm);
         };
 
-        // For now, map Click toggle to Arranger snap
         topBar.onClickToggled = [this](bool on)
         {
             metronome.setClickEnabled(on);
             arranger.setSnap(on);
         };
 
-        // Window controls
         topBar.onMinimize = [this]()
         {
             if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
@@ -296,9 +283,6 @@ public:
         {
             juce::Logger::writeToLog("Project title changed: " + newTitle);
         };
-
-        if (arranger.tracks.empty())
-            arranger.addTrack("Audio 1");
 
         setWantsKeyboardFocus(true);
         setSize(1200, 720);
@@ -321,7 +305,6 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
-        // SPACE = START/STOP ONLY
         if (key.getTextCharacter() == ' ')
         {
             if (playing)
@@ -345,7 +328,6 @@ public:
         return false;
     }
 
-    // Ctrl+wheel zooms the Arranger
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
         if (e.mods.isCtrlDown())
@@ -376,7 +358,7 @@ class MainWindow : public juce::DocumentWindow,
                    private juce::KeyListener
 {
 public:
-    MainWindow(juce::AudioDeviceManager& dm, juce::MixerAudioSource& mix, MetronomeSource& metro)
+    MainWindow(juce::MixerAudioSource& mix, MetronomeSource& metro)
         : juce::DocumentWindow("AIDAW", juce::Colours::black, 0 /* no OS buttons */)
     {
         setUsingNativeTitleBar(false);
@@ -415,18 +397,18 @@ public:
 
     void initialise (const juce::String&) override
     {
-        // --- Windows emoji/UTF-8 glyph fix for toolbar icons (🔍 ✂ ↔ ⛓, etc.) ---
-        #if JUCE_WINDOWS
-        juce::LookAndFeel::getDefaultLookAndFeel()
-            .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
-        #endif
+       #if JUCE_WINDOWS
+// Force a font that contains emoji/symbols (🔍 ✂ ↔ ⛓ etc.)
+juce::LookAndFeel::getDefaultLookAndFeel()
+    .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
+#endif
 
         deviceManager.initialise(0, 2, nullptr, true);
 
         player.setSource(&mixer);
         deviceManager.addAudioCallback(&player);
 
-        mainWindow = std::make_unique<MainWindow>(deviceManager, mixer, metronome);
+        mainWindow = std::make_unique<MainWindow>(mixer, metronome);
     }
 
     void shutdown() override

@@ -20,7 +20,7 @@ static inline juce::String U8(const char8_t* s) {
 struct ClipModel
 {
     juce::String id;
-    double startBeats = 0.0;
+    double startBeats  = 0.0;
     double lengthBeats = 4.0;
     juce::File file;
 };
@@ -120,32 +120,34 @@ public:
     {
         setInterceptsMouseClicks(true, true);
         setWantsKeyboardFocus(false);
+        setBufferedToImage(true);
 
         if (model.file.existsAsFile())
         {
-            bool loaded = ThumbPersistence::load(thumb, model.file);
-            if (!loaded)
-            {
-                thumb.addChangeListener(this);
-                thumb.setSource(new juce::FileInputSource(model.file));
-            }
+            (void) ThumbPersistence::load(thumb, model.file);
+            thumb.setSource(new juce::FileInputSource(model.file)); // takes ownership
         }
+
+        thumb.addChangeListener(this);
     }
 
     ~ClipComponent() override { thumb.removeChangeListener(this); }
+
+    void setActiveTool(ArrangerTool t) { activeTool = t; updateCursorForPoint(lastMousePos); }
 
     void paint(juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat();
 
+        // Body
         g.setColour(juce::Colour(0xFF373737));
         g.fillRoundedRectangle(r, 8.0f);
 
-        auto inner = r.reduced(8.0f, 6.0f);
+        auto inner = r.reduced(8.0f, 6.0f).toNearestInt();
         if (thumb.getTotalLength() > 0.0)
         {
-            g.setColour(juce::Colour(0xFF8C8C8C));
-            thumb.drawChannel(g, inner.toNearestInt(), 0.0, thumb.getTotalLength(), 0, 1.0f);
+            g.setColour(juce::Colour(0xFFB4B4B4));
+            thumb.drawChannels(g, inner, 0.0, thumb.getTotalLength(), 1.0f);
         }
         else
         {
@@ -159,12 +161,19 @@ public:
             g.drawText(text, getLocalBounds().reduced(8, 6), juce::Justification::centredLeft, true);
         }
 
+        // Border
         g.setColour(juce::Colour(0x66FFFFFF));
         g.drawRoundedRectangle(r, 8.0f, 1.0f);
     }
 
     juce::Rectangle<int> leftHandle()  const { return getLocalBounds().withWidth(6); }
     juce::Rectangle<int> rightHandle() const { return getLocalBounds().withX(getRight()-6).withWidth(6); }
+
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        lastMousePos = e.getPosition();
+        updateCursorForPoint(lastMousePos);
+    }
 
     ClipModel& model;
     std::function<void()> onChanged;
@@ -181,28 +190,54 @@ private:
         if (onChanged) onChanged();
     }
 
+    void updateCursorForPoint(juce::Point<int> p)
+    {
+        using MC = juce::MouseCursor;
+
+        if (activeTool == ArrangerTool::Resize)
+        {
+            setMouseCursor((leftHandle().contains(p) || rightHandle().contains(p))
+                            ? MC::LeftRightResizeCursor
+                            : MC::NormalCursor);
+            return;
+        }
+
+        switch (activeTool)
+        {
+            case ArrangerTool::Pointer: setMouseCursor(MC::DraggingHandCursor);  break;
+            case ArrangerTool::Slice:   setMouseCursor(MC::CrosshairCursor);     break;
+            case ArrangerTool::Zoom:    setMouseCursor(MC::PointingHandCursor);  break; // portable stand-in
+            case ArrangerTool::Resize:  break;
+        }
+    }
+
     juce::AudioFormatManager& fm;
     juce::AudioThumbnail       thumb;
     bool savedOnce { false };
+
+    ArrangerTool   activeTool { ArrangerTool::Pointer };
+    juce::Point<int> lastMousePos { -1, -1 };
 };
 
 /* ===================== UI: Track Lane ===================== */
 
-class TrackLaneComponent : public juce::Component,
-                           private juce::Button::Listener
+class TrackLaneComponent : public juce::Component
 {
 public:
     TrackLaneComponent(TrackModel& m,
-                       std::function<void(TrackModel&)> onDelete,
+                       std::function<void(TrackModel&)> onSelect,
+                       std::function<void(size_t)> onDuplicate,
                        std::function<void(TrackLaneComponent&, int yInContent)> onDragLaneCb,
                        std::function<void(TrackLaneComponent&)> onDragStartCb,
                        std::function<void(TrackLaneComponent&)> onDragEndCb,
-                       std::function<void(TrackLaneComponent&)> onSelectCb)
-        : model(m), onDeleteLane(std::move(onDelete)),
+                       size_t myIndex)
+        : model(m),
+          onSelected(std::move(onSelect)),
+          onDuplicateLane(std::move(onDuplicate)),
           onDragLane(std::move(onDragLaneCb)),
           onDragStart(std::move(onDragStartCb)),
           onDragEnd(std::move(onDragEndCb)),
-          onSelected(std::move(onSelectCb))
+          index(myIndex)
     {
         title.setText(model.name, juce::dontSendNotification);
         title.setJustificationType(juce::Justification::centredLeft);
@@ -211,14 +246,7 @@ public:
         title.setMinimumHorizontalScale(0.8f);
         title.onTextChange = [this]() { model.name = title.getText(); repaint(); };
         addAndMakeVisible(title);
-
-        // Top-right ✕
-        btnClose.setButtonText(U8(u8"✕"));
-        btnClose.addListener(this);
-        addAndMakeVisible(btnClose);
     }
-
-    ~TrackLaneComponent() override { btnClose.removeListener(this); }
 
     void setSelected(bool on) { selected = on; repaint(); }
     bool isSelected() const { return selected; }
@@ -227,81 +255,75 @@ public:
     {
         auto r = getLocalBounds();
 
-        // lane body
-        g.setColour(selected ? juce::Colour(0xFF171717) : juce::Colour(0xFF0F0F0F));
+        // Lane body
+        g.setColour(juce::Colour(0xFF0F0F0F));
         g.fillRect(r);
 
-        // header
+        // Header block on the left
         auto header = r.removeFromLeft(headerWidth);
         g.setColour(selected ? juce::Colour(0xFF1E1E1E) : juce::Colour(0xFF141414));
         g.fillRect(header);
+
+        // Header border + selection accent
         g.setColour(juce::Colour(0x22FFFFFF));
         g.drawRect(header);
 
-        // separator
-        g.setColour(juce::Colour(0x11FFFFFF));
-        g.fillRect(0, getHeight()-1, getWidth(), 1);
-
-        // selection outline
         if (selected)
         {
-            g.setColour(juce::Colour(0xFF3B82F6));
-            g.drawRect(getLocalBounds(), 1);
+            g.setColour(juce::Colour(0xFF3B82F6)); // stronger highlight
+            g.drawRect(header, 2);
+            g.drawRect(getLocalBounds(), 2);
         }
+
+        // Row bottom hairline
+        g.setColour(juce::Colour(0x11FFFFFF));
+        g.fillRect(0, getHeight()-1, getWidth(), 1);
     }
 
     void resized() override
     {
         title.setBounds(8, 6, headerWidth - 16, getHeight() - 12);
-
-        const int btnW = 22, btnH = 22;
-        btnClose.setBounds(getWidth() - btnW - 6, 2, btnW, btnH); // top-right corner
     }
 
     void mouseDown(const juce::MouseEvent& e) override
     {
-        if (onSelected) onSelected(*this); // select on any left click
+        const bool inHeader = e.position.x <= (float) headerWidth;
+        if (onSelected) onSelected(model);
+        draggingHeader = inHeader;   // reorder only when header grabbed
+        if (draggingHeader && onDragStart) onDragStart(*this);
 
-        draggingHeader = e.position.x <= (float) headerWidth;
-        if (draggingHeader && onDragStart)
-            onDragStart(*this);
+        // Duplicate on double-click header (or press 'D' hotkey in Arranger)
+        if (e.getNumberOfClicks() >= 2 && inHeader && onDuplicateLane)
+            onDuplicateLane(index);
     }
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
         if (!draggingHeader || onDragLane == nullptr) return;
         if (auto* parent = getParentComponent())
-        {
-            auto rel = e.getEventRelativeTo(parent);
-            onDragLane(*this, rel.getPosition().y);
-        }
+            onDragLane(*this, e.getEventRelativeTo(parent).getPosition().y);
     }
 
     void mouseUp(const juce::MouseEvent&) override
     {
-        if (draggingHeader && onDragEnd)
-            onDragEnd(*this);
+        if (draggingHeader && onDragEnd) onDragEnd(*this);
         draggingHeader = false;
     }
 
     static constexpr int headerWidth = 180;
 
     TrackModel&      model;
-    juce::Label      title;
-    juce::TextButton btnClose;
 
-    std::function<void(TrackModel&)>                         onDeleteLane;
+private:
+    juce::Label      title;
+
+    std::function<void(TrackModel&)>                         onSelected;
+    std::function<void(size_t)>                              onDuplicateLane;
     std::function<void(TrackLaneComponent&, int yInContent)> onDragLane;
     std::function<void(TrackLaneComponent&)>                 onDragStart;
     std::function<void(TrackLaneComponent&)>                 onDragEnd;
-    std::function<void(TrackLaneComponent&)>                 onSelected;
 
-private:
-    void buttonClicked(juce::Button* b) override
-    {
-        if (b == &btnClose) { if (onDeleteLane) onDeleteLane(model); }
-    }
-
+    size_t index { 0 };
     bool selected { false };
     bool draggingHeader { false };
 };
@@ -358,14 +380,12 @@ public:
             g.setColour(juce::Colour(0x0EFFFFFF));
             const int subDivs = (ppb >= 140.0) ? 4 : 2;
             for (int beat = 0; beat <= totalBeats; ++beat)
-            {
                 for (int s = 1; s < subDivs; ++s)
                 {
                     const double frac = (double)s / (double)subDivs;
                     const int x = gridX0 + (int)std::round((beat + frac) * ppb);
                     g.fillRect(x, 20, 1, getHeight()-20);
                 }
-            }
         }
     }
 
@@ -396,10 +416,10 @@ public:
     Arranger()
         : cache(128)
     {
-        setWantsKeyboardFocus(true);           // for Delete key
+        setWantsKeyboardFocus(true);           // for hotkeys & Delete
         fm.registerBasicFormats();
 
-        // Tool buttons (symbols)
+        // Tool buttons (emoji/symbols – UTF-8 + font set in Main.cpp)
         btnPointer.setButtonText(U8(u8"⬚"));
         btnSlice.setButtonText  (U8(u8"✂"));
         btnResize.setButtonText (U8(u8"↔"));
@@ -407,13 +427,17 @@ public:
         btnFrameAll.setButtonText(U8(u8"◰"));
         btnSnap.setButtonText   (U8(u8"⛓"));
 
-        btnPointer.setTooltip("Pointer (move/select)");
-        btnSlice.setTooltip("Slice tool");
-        btnResize.setTooltip("Resize tool");
-        btnZoomTool.setTooltip("Zoom tool (drag: L=in / R=out)");
-        btnFrameAll.setTooltip("Frame all");
-        btnSnap.setTooltip("Snap to grid");
+        // Tooltips
+        btnPointer.setTooltip("Pointer (1) – move/select");
+        btnSlice.setTooltip("Slice (2) – cut clip" "\n" "Grid on: cut to nearest beat");
+        btnResize.setTooltip("Resize (3) – drag clip edges");
+        btnZoomTool.setTooltip("Zoom (4) – drag: L=in / R=out");
+        btnFrameAll.setTooltip("Frame all (F)");
+        btnSnap.setTooltip("Snap to grid (G)");
 
+        // Visual on/off & toggles
+        for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool })
+            b->setClickingTogglesState(true);
         btnSnap.setClickingTogglesState(true);
         btnSnap.setToggleState(true, juce::dontSendNotification);
 
@@ -427,8 +451,8 @@ public:
         // Zoom +/- controls
         btnZoomIn.setButtonText("+");
         btnZoomOut.setButtonText("-");
-        btnZoomIn.setTooltip("Zoom in");
-        btnZoomOut.setTooltip("Zoom out");
+        btnZoomIn.setTooltip("Zoom in (+)");
+        btnZoomOut.setTooltip("Zoom out (-)");
         for (auto* b : { &btnZoomOut, &btnZoomIn })
         {
             b->addListener(this);
@@ -443,6 +467,7 @@ public:
         setSnap(true);
 
         refreshAll();
+        applyCursorForToolEverywhere();
     }
 
     ~Arranger() override
@@ -451,17 +476,19 @@ public:
             b->removeListener(this);
     }
 
-    /* --------- External API --------- */
+    /* --------- External API / hooks --------- */
+
+    // Callbacks for transport (wired by Main.cpp). 'play' should restart if at end.
+    std::function<void()> onPlayPressed;
+    std::function<void()> onStopPressed;
+
     void setBPM(double bpm)
     {
         const double old = bpmValue;
         bpmValue = juce::jlimit(40.0, 300.0, bpm);
-
-        // Grid scales with BPM (time-constant feel)
         pixelsPerBeat = ppbAt120 * (120.0 / bpmValue) * zoomScale;
 
-        if (std::abs(old - bpmValue) > 1e-6)
-            recomputeClipBeatLengthsForTempo(); // keep loops bar aligned
+        if (std::abs(old - bpmValue) > 1e-6) { pushUndo(); recomputeClipBeatLengthsForTempo(); }
 
         layoutClips();
         repaint();
@@ -472,6 +499,7 @@ public:
     {
         snapToGrid = on;
         btnSnap.setToggleState(on, juce::dontSendNotification);
+        repaint();
     }
 
     void setTool(ArrangerTool t)
@@ -479,13 +507,17 @@ public:
         tool = t;
         auto mark = [&](juce::TextButton& b, bool on)
         {
+            b.setToggleState(on, juce::dontSendNotification);
             b.setColour(juce::TextButton::buttonColourId, on ? activeCol : idleCol);
+            b.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
             b.repaint();
         };
         mark(btnPointer, t == ArrangerTool::Pointer);
         mark(btnSlice,   t == ArrangerTool::Slice);
         mark(btnResize,  t == ArrangerTool::Resize);
         mark(btnZoomTool,t == ArrangerTool::Zoom);
+
+        applyCursorForToolEverywhere();
         repaint();
     }
 
@@ -499,6 +531,7 @@ public:
     void filesDropped(const juce::StringArray& files, int x, int y) override
     {
         if (files.isEmpty()) return;
+        pushUndo();
 
         const int contentX = x + view.getViewPositionX();
         const double dropBeats = canvas.beatsFromX(contentX);
@@ -513,7 +546,7 @@ public:
             if (!f.existsAsFile()) continue;
 
             while (laneIdx >= (int)tracks.size())
-                addTrack("Audio " + juce::String((int)tracks.size()+1));
+                addTrack("Audio " + juce::String((int)tracks.size()+1), /*push=*/false);
 
             ClipModel clip;
             clip.id = juce::Uuid().toString();
@@ -570,6 +603,42 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
+        const bool ctrl = key.getModifiers().isCommandDown();
+
+        // Transport
+        if (key.getKeyCode() == juce::KeyPress::spaceKey) { if (onPlayPressed) onPlayPressed(); return true; }
+
+        // Undo / Redo
+        if (ctrl && (key.getTextCharacter() == 'z' || key.getTextCharacter() == 'Z'))
+        {
+            if (key.getModifiers().isShiftDown()) redo(); else undo();
+            return true;
+        }
+
+        // Tools
+        if (key.getTextCharacter() == '1') { setTool(ArrangerTool::Pointer); return true; }
+        if (key.getTextCharacter() == '2') { setTool(ArrangerTool::Slice);   return true; }
+        if (key.getTextCharacter() == '3') { setTool(ArrangerTool::Resize);  return true; }
+        if (key.getTextCharacter() == '4') { setTool(ArrangerTool::Zoom);    return true; }
+
+        // Grid snap toggle
+        if (key.getTextCharacter() == 'g' || key.getTextCharacter() == 'G')
+        { setSnap(!snapToGrid); return true; }
+
+        // Frame all
+        if (key.getTextCharacter() == 'f' || key.getTextCharacter() == 'F')
+        { frameAll(); return true; }
+
+        // Zoom +/- keys
+        if (key.getTextCharacter() == '+') { zoomDelta(+1); return true; }
+        if (key.getTextCharacter() == '-') { zoomDelta(-1); return true; }
+
+        // Duplicate & Delete
+        if (key.getTextCharacter() == 'd' || key.getTextCharacter() == 'D')
+        {
+            if (selectedLaneIndex >= 0) { duplicateTrack((size_t)selectedLaneIndex); return true; }
+        }
+
         if (key.getKeyCode() == juce::KeyPress::deleteKey)
         {
             if (selectedLaneIndex >= 0 && selectedLaneIndex < (int)tracks.size())
@@ -584,8 +653,10 @@ public:
     }
 
     /* --------- Public helpers --------- */
-    void addTrack(const juce::String& name = "Audio")
+
+    void addTrack(const juce::String& name = "Audio", bool push = true)
     {
+        if (push) pushUndo();
         TrackModel t;
         t.id = juce::Uuid().toString();
         t.name = name;
@@ -593,8 +664,20 @@ public:
         refreshAll();
     }
 
+    void duplicateTrack(size_t idx)
+    {
+        if (idx >= tracks.size()) return;
+        pushUndo();
+        TrackModel copy = tracks[idx];
+        copy.id = juce::Uuid().toString();
+        tracks.insert(tracks.begin() + (ptrdiff_t)idx + 1, std::move(copy));
+        refreshAll();
+        setSelectedLane((int)idx + 1);
+    }
+
     void removeTrackById(const juce::String& id)
     {
+        pushUndo();
         const auto it = std::find_if(tracks.begin(), tracks.end(),
             [&](const TrackModel& t){ return t.id == id; });
         if (it != tracks.end()) tracks.erase(it);
@@ -637,7 +720,6 @@ public:
         const int viewportW = juce::jmax(1, view.getWidth() - TrackLaneComponent::headerWidth - 40);
         const double ppbNow = juce::jlimit(10.0, 300.0, (double)viewportW / juce::jmax(8.0, maxEndBeats));
 
-        // store as baseline-at-120 so later BPM changes keep this framing feel
         ppbAt120      = ppbNow * (bpmValue / 120.0);
         zoomScale     = 1.0;
         pixelsPerBeat = ppbAt120 * (120.0 / bpmValue) * zoomScale;
@@ -653,7 +735,6 @@ private:
 
     class ContentComp : public juce::Component
     {
-    public:
         void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xFF0A0A0A)); }
     } content;
 
@@ -668,10 +749,10 @@ private:
     ArrangerTool tool { ArrangerTool::Pointer };
     juce::Colour activeCol = juce::Colour(0xFF3B82F6), idleCol = juce::Colour(0xFF2A2A2A);
 
-    // timing + grid (ppb derived from BPM)
+    // timing + grid
     double bpmValue { 120.0 };
     bool   snapToGrid { true };
-    double ppbAt120 { 52.0 };             // baseline at 120 BPM
+    double ppbAt120 { 52.0 };
     double pixelsPerBeat { 52.0 };
     double zoomScale { 1.0 };
 
@@ -693,14 +774,61 @@ private:
     int startLaneIndex { -1 };
     int targetLaneIndex { -1 };
 
-    // zoom-drag
+    // zoom + middle mouse pan
     bool zoomDragActive { false };
     int  zoomDragStartXContent { -1 };
+    bool panActive { false };
+    juce::Point<int> panStartMouse;
+    juce::Point<int> panStartView;
 
     // lane reorder
     int draggingLaneIndex { -1 };
 
+    // simple undo/redo stacks (snapshot based)
+    std::vector<std::vector<TrackModel>> undoStack, redoStack;
+
     /* ---- helpers ---- */
+
+    void pushUndo()
+    {
+        undoStack.push_back(tracks);
+        redoStack.clear();
+    }
+    void undo()
+    {
+        if (undoStack.empty()) return;
+        redoStack.push_back(tracks);
+        tracks = std::move(undoStack.back());
+        undoStack.pop_back();
+        refreshAll();
+    }
+    void redo()
+    {
+        if (redoStack.empty()) return;
+        undoStack.push_back(tracks);
+        tracks = std::move(redoStack.back());
+        redoStack.pop_back();
+        refreshAll();
+    }
+
+    void applyCursorForToolEverywhere()
+    {
+        using MC = juce::MouseCursor;
+        MC c = MC::NormalCursor;
+
+        switch (tool)
+        {
+            case ArrangerTool::Pointer: c = MC::DraggingHandCursor;    break;
+            case ArrangerTool::Slice:   c = MC::CrosshairCursor;       break;
+            case ArrangerTool::Resize:  c = MC::LeftRightResizeCursor; break;
+            case ArrangerTool::Zoom:    c = MC::PointingHandCursor;    break; // stand-in
+        }
+
+        setMouseCursor(c);
+        view.setMouseCursor(c);
+        canvas.setMouseCursor(c);
+        for (auto& up : clipComps) up->setActiveTool(tool);
+    }
 
     void refreshAll()
     {
@@ -712,7 +840,9 @@ private:
             auto& tm = tracks[i];
             auto lane = std::make_unique<TrackLaneComponent>(
                 tm,
-                [this](TrackModel& m) { removeTrackById(m.id); setSelectedLane(-1); },
+[this, i](TrackModel&) { setSelectedLane((int)i); },
+
+                [this](size_t idx){ duplicateTrack(idx); },
                 [this](TrackLaneComponent&, int yInContent)
                 {
                     const int idx = laneIndexFromY(yInContent);
@@ -732,11 +862,9 @@ private:
                     draggingLaneIndex = -1;
                     refreshAll();
                 },
-                [this, i](TrackLaneComponent&)
-                {
-                    setSelectedLane((int)i);
-                }
+                i
             );
+            
             lane->setSelected((int)i == selectedLaneIndex);
             content.addAndMakeVisible(lane.get());
             laneComps.emplace_back(std::move(lane));
@@ -754,6 +882,7 @@ private:
                 cc->addMouseListener(this, true);
                 content.addAndMakeVisible(cc);
                 clipComps.emplace_back(cc);
+                clipComps.back()->setActiveTool(tool); // keep cursors in sync
             }
         }
 
@@ -771,7 +900,7 @@ private:
         selectedLaneIndex = (idx >= 0 && idx < (int)tracks.size()) ? idx : -1;
         for (int i=0;i<(int)laneComps.size();++i)
             laneComps[(size_t)i]->setSelected(i == selectedLaneIndex);
-        grabKeyboardFocus(); // for Delete key
+        grabKeyboardFocus();
         repaint();
     }
 
@@ -786,7 +915,6 @@ private:
         return juce::jlimit(0, (int)tracks.size()-1, idx);
     }
 
-    // allow "drop below last lane" -> potentially create new lanes
     int laneIndexFromYAllowNew(int yInContent) const
     {
         const int rulerH = 20;
@@ -795,10 +923,10 @@ private:
         if (y < laneTop()) return 0;
         if (tracks.empty()) return 0;
         const int idx = (y - laneTop()) / laneH;
-        return juce::jlimit(0, (int)tracks.size(), idx); // size() means "new lane"
+        return juce::jlimit(0, (int)tracks.size(), idx);
     }
 
-    int laneTop() const { return 20; }      // ruler only (no extra gap)
+    int laneTop() const    { return 20; }
     int laneHeight() const { return 76; }
 
     void layoutLanes()
@@ -861,10 +989,19 @@ private:
         repaint();
     }
 
-    /* ---- Mouse routing on clips (move / slice / resize / zoom) ---- */
+    /* ---- Mouse routing on clips (move / slice / resize / zoom + middle-pan) ---- */
 
     void mouseDown(const juce::MouseEvent& e) override
     {
+        // Middle mouse: begin panning regardless of tool
+        if (e.mods.isMiddleButtonDown())
+        {
+            panActive = true;
+            panStartMouse = e.getEventRelativeTo(this).getPosition();
+            panStartView = view.getViewPosition();
+            return;
+        }
+
         const bool rightClick = e.mods.isRightButtonDown();
 
         if (tool == ArrangerTool::Zoom)
@@ -878,10 +1015,12 @@ private:
         if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
         {
             activeClip = cc;
-            setSelectedLane(trackIndexForClip(cc->model)); // select lane on clip click
+            setSelectedLane(trackIndexForClip(cc->model));
 
             startLaneIndex = trackIndexForClip(cc->model);
             targetLaneIndex = startLaneIndex;
+
+            pushUndo(); // start an edit transaction
 
             if (tool == ArrangerTool::Resize)
             {
@@ -895,6 +1034,7 @@ private:
             else if (tool == ArrangerTool::Slice)
             {
                 auto beat = canvas.beatsFromX(e.getEventRelativeTo(&content).x);
+                if (snapToGrid) beat = std::round(beat); // cut to grid
                 performSliceAtBeat(*cc, beat);
                 return;
             }
@@ -909,13 +1049,22 @@ private:
         }
         else
         {
-            // clicked empty background – clear selection
-            setSelectedLane(-1);
+            setSelectedLane(-1); // clicked background
         }
     }
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
+        // Middle mouse pan
+        if (panActive)
+        {
+            auto cur = e.getEventRelativeTo(this).getPosition();
+            auto delta = cur - panStartMouse;
+            view.setViewPosition(juce::jmax(0, panStartView.x - delta.x),
+                                 juce::jmax(0, panStartView.y - delta.y));
+            return;
+        }
+
         if (zoomDragActive && tool == ArrangerTool::Zoom)
         {
             const bool rightClick = e.mods.isRightButtonDown();
@@ -978,6 +1127,7 @@ private:
 
     void mouseUp(const juce::MouseEvent&) override
     {
+        panActive = false;
         zoomDragActive = false;
 
         if (activeClip)
@@ -985,12 +1135,12 @@ private:
             if (dragging == DragMode::Move && targetLaneIndex >= 0)
             {
                 if (targetLaneIndex == (int)tracks.size())
-                    addTrack("Audio " + juce::String((int)tracks.size()+1)); // new lane
+                    addTrack("Audio " + juce::String((int)tracks.size()+1));
 
                 if (targetLaneIndex != startLaneIndex)
                     moveClipToLane(activeClip->model, startLaneIndex, targetLaneIndex);
 
-                setSelectedLane(targetLaneIndex);
+                setSelectedLane(juce::jmin(targetLaneIndex, (int)tracks.size()-1));
             }
         }
 
@@ -1054,7 +1204,6 @@ private:
         return 16.0;
     }
 
-    // Detect loop BPM (metadata or filename like "...127bpm..." or "..._127_...")
     double detectLoopBpm(const juce::File& f)
     {
         std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
@@ -1102,7 +1251,6 @@ private:
         return 0.0;
     }
 
-    // Keep common loop lengths clean when tempo changes
     void recomputeClipBeatLengthsForTempo()
     {
         for (auto& t : tracks)
@@ -1118,7 +1266,7 @@ private:
 
                 const double beats = (secs * srcBpm) / 60.0;
 
-                double rounded = std::round(beats * 4.0) / 4.0;  // near 16th grid
+                double rounded = std::round(beats * 4.0) / 4.0;  // ~16th grid
                 const double bars = rounded / 4.0;
                 const double nearestCommon = std::round(bars);
                 if (std::abs(nearestCommon - bars) < 0.08)
@@ -1131,7 +1279,7 @@ private:
         extendContentToMaxClip();
     }
 
-    // --- Slicing helper (this was missing) ---
+    // Slice helper
     void performSliceAtBeat(ClipComponent& cc, double beat)
     {
         ClipModel& clip = cc.model;
@@ -1140,7 +1288,6 @@ private:
 
         if (beat <= clipStart || beat >= clipEnd) return;
 
-        // Find the track that owns this clip
         for (auto& t : tracks)
         {
             for (auto it = t.clips.begin(); it != t.clips.end(); ++it)
@@ -1150,17 +1297,15 @@ private:
                     const double leftLen  = beat - clipStart;
                     const double rightLen = clipEnd - beat;
 
-                    // shrink left
                     it->lengthBeats = leftLen;
 
-                    // make right
                     ClipModel right;
                     right.id          = juce::Uuid().toString();
                     right.file        = it->file;
                     right.startBeats  = beat;
                     right.lengthBeats = rightLen;
 
-                    t.clips.insert(it + 1, std::move(right)); // keep order
+                    t.clips.insert(it + 1, std::move(right));
 
                     refreshAll();
                     if (onProjectChanged) onProjectChanged();
@@ -1174,9 +1319,9 @@ private:
     void buttonClicked(juce::Button* b) override
     {
         if (b == &btnPointer)      setTool(ArrangerTool::Pointer);
-        else if (b == &btnSlice)   setTool(ArrangerTool::Slice);
-        else if (b == &btnResize)  setTool(ArrangerTool::Resize);
-        else if (b == &btnZoomTool)setTool(ArrangerTool::Zoom);
+        else if (b == &btnSlice)   setTool(btnSlice.getToggleState() && tool!=ArrangerTool::Slice ? ArrangerTool::Slice : ArrangerTool::Pointer);
+        else if (b == &btnResize)  setTool(btnResize.getToggleState() && tool!=ArrangerTool::Resize? ArrangerTool::Resize: ArrangerTool::Pointer);
+        else if (b == &btnZoomTool)setTool(btnZoomTool.getToggleState()&& tool!=ArrangerTool::Zoom  ? ArrangerTool::Zoom  : ArrangerTool::Pointer);
         else if (b == &btnFrameAll)frameAll();
         else if (b == &btnSnap)    setSnap(btnSnap.getToggleState());
         else if (b == &btnZoomIn)  zoomDelta(+1);
