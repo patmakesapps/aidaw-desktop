@@ -68,14 +68,17 @@ public:
         // Transport
         playPause.setButtonText("Play");
         playPause.addListener(this);
+        playPause.setTooltip("Space = Play/Stop");
         addAndMakeVisible(playPause);
 
         stop.setButtonText("Stop");
         stop.addListener(this);
+        stop.setTooltip("Stop (Return to start)");
         addAndMakeVisible(stop);
 
         record.setButtonText("Rec");
         record.addListener(this);
+        record.setTooltip("Arm recording");
         addAndMakeVisible(record);
 
         // Title (absolute center) — editable on single click
@@ -96,6 +99,7 @@ public:
         addAndMakeVisible(bpmLabelLeft);
 
         minusBtn.addListener(this); minusBtn.setButtonText("-");
+        minusBtn.setTooltip("Tempo -1");
         addAndMakeVisible(minusBtn);
 
         bpmEdit.setText(juce::String(currentBPM, 2), juce::dontSendNotification);
@@ -103,6 +107,7 @@ public:
         bpmEdit.setJustification(juce::Justification::centred);
         bpmEdit.setScrollbarsShown(false);
         bpmEdit.addListener(this);
+        bpmEdit.setTooltip("Type tempo and press Enter");
         addAndMakeVisible(bpmEdit);
 
         bpmLabelRight.setText("bpm", juce::dontSendNotification);
@@ -110,16 +115,18 @@ public:
         addAndMakeVisible(bpmLabelRight);
 
         plusBtn.addListener(this); plusBtn.setButtonText("+");
+        plusBtn.setTooltip("Tempo +1");
         addAndMakeVisible(plusBtn);
 
         clickToggle.setButtonText("Click");
         clickToggle.setToggleState(clickEnabled, juce::dontSendNotification);
         clickToggle.addListener(this);
+        clickToggle.setTooltip("Metronome on/off (also toggles grid snap)");
         addAndMakeVisible(clickToggle);
 
         // Window controls
-        btnMin.setButtonText("-"); btnMin.addListener(this); addAndMakeVisible(btnMin);
-        btnClose.setButtonText("X"); btnClose.addListener(this); addAndMakeVisible(btnClose);
+        btnMin.setButtonText("-"); btnMin.addListener(this); btnMin.setTooltip("Minimize"); addAndMakeVisible(btnMin);
+        btnClose.setButtonText("X"); btnClose.addListener(this); btnClose.setTooltip("Close"); addAndMakeVisible(btnClose);
     }
 
     ~TopBar() override { setLookAndFeel(nullptr); }

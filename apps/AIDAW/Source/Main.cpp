@@ -6,6 +6,7 @@
 /* ---------------- Simple timeline playback that mixes all clips ----------------
    - No time-stretching; clips play at natural speed, positioned by startBeats.
    - If an audio file's sample-rate differs from the device, we resample on the fly.
+   - Uses ClipModel::offsetBeats so visual trimming = audible trimming.
 ------------------------------------------------------------------------------- */
 class TimelineAudioSource : public juce::AudioSource
 {
@@ -39,11 +40,10 @@ public:
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& info) override
     {
         info.clearActiveBufferRegion();
+
+        // Do NOT advance playhead while stopped/paused.
         if (!playing || deviceSampleRate <= 0.0)
-        {
-            playheadSamples += info.numSamples;
             return;
-        }
 
         if (needsRebuild) { buildReaders(); needsRebuild = false; }
 
@@ -56,10 +56,13 @@ public:
         for (size_t i = 0; i < sources.size(); ++i)
         {
             auto* model = clipModels[i];
+
             const double secPerBeat = 60.0 / juce::jmax(1.0, bpmRef);
-            const int64 clipStart  = (int64) std::llround(model->startBeats * secPerBeat * deviceSampleRate);
-            const int64 clipLen    = (int64) std::llround(model->lengthBeats * secPerBeat * deviceSampleRate);
-            const int64 clipEnd    = clipStart + clipLen;
+
+            // Floor/ceil to avoid chopping the first transient by rounding forward.
+            const int64 clipStart = (int64) std::floor(model->startBeats  * secPerBeat * deviceSampleRate);
+            const int64 clipLen   = (int64) std::ceil (model->lengthBeats * secPerBeat * deviceSampleRate);
+            const int64 clipEnd   = clipStart + clipLen;
 
             const int64 segStart = std::max(blockStart, clipStart);
             const int64 segEnd   = std::min(blockEnd,   clipEnd);
@@ -68,9 +71,15 @@ public:
 
             const int outOffset = (int) (segStart - blockStart);
 
+            // Offset into the source file when the clip was trimmed from the left.
+            const int64 offsetOutSamples =
+                (int64) std::llround(model->offsetBeats * secPerBeat * deviceSampleRate);
+
+            const int64 clipPosOutSamples = (segStart - clipStart) + offsetOutSamples;
+
             const double ratio = resampleRatios[i]; // inSamples per outSample
-            const int64 clipPosOutSamples = segStart - clipStart;
-            const int64 clipPosInSamples  = (int64) std::llround((double)clipPosOutSamples * ratio);
+            int64 clipPosInSamples = (int64) std::llround((double)clipPosOutSamples * ratio);
+            if (clipPosInSamples < 0) clipPosInSamples = 0;
 
             sources[i]->setNextReadPosition(clipPosInSamples);
 
@@ -226,6 +235,12 @@ public:
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
 
+        // Tooltip manager (enables hover tooltips globally)
+        // Show delay 350ms; parented to this component.
+        // Just declaring as a member is enough.
+        // (See member declaration below.)
+        (void)tooltip;
+
         mixer.addInputSource(&metronome, false);
         mixer.addInputSource(&timeline,  false);
 
@@ -350,6 +365,9 @@ private:
     bool   recordArmed { false };
     double currentBpm  { 120.0 };
 
+    // Tooltip Window: enables hover tooltips across the app
+    juce::TooltipWindow tooltip { this, 350 };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
@@ -398,10 +416,10 @@ public:
     void initialise (const juce::String&) override
     {
        #if JUCE_WINDOWS
-// Force a font that contains emoji/symbols (🔍 ✂ ↔ ⛓ etc.)
-juce::LookAndFeel::getDefaultLookAndFeel()
-    .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
-#endif
+        // Force a font that contains emoji/symbols (🔍 ✂ ↔ ⛓ etc.)
+        juce::LookAndFeel::getDefaultLookAndFeel()
+            .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
+       #endif
 
         deviceManager.initialise(0, 2, nullptr, true);
 

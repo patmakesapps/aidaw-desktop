@@ -20,8 +20,9 @@ static inline juce::String U8(const char8_t* s) {
 struct ClipModel
 {
     juce::String id;
-    double startBeats  = 0.0;
-    double lengthBeats = 4.0;
+    double startBeats  = 0.0;   // where the clip sits on the project grid
+    double lengthBeats = 4.0;   // visible length on the grid
+    double offsetBeats = 0.0;   // NEW: how far into the source file to start reading
     juce::File file;
 };
 
@@ -246,6 +247,8 @@ public:
         title.setMinimumHorizontalScale(0.8f);
         title.onTextChange = [this]() { model.name = title.getText(); repaint(); };
         addAndMakeVisible(title);
+        title.setTooltip("Double-click header to duplicate. Drag header to reorder.");
+
     }
 
     void setSelected(bool on) { selected = on; repaint(); }
@@ -429,7 +432,7 @@ public:
 
         // Tooltips
         btnPointer.setTooltip("Pointer (1) – move/select");
-        btnSlice.setTooltip("Slice (2) – cut clip" "\n" "Grid on: cut to nearest beat");
+        btnSlice.setTooltip("Slice (2) – cut clip\nGrid on: cut to nearest beat");
         btnResize.setTooltip("Resize (3) – drag clip edges");
         btnZoomTool.setTooltip("Zoom (4) – drag: L=in / R=out");
         btnFrameAll.setTooltip("Frame all (F)");
@@ -468,6 +471,9 @@ public:
 
         refreshAll();
         applyCursorForToolEverywhere();
+
+        // Local tooltip host is optional (Main has one already)
+        // juce::TooltipWindow tips { this, 350 };
     }
 
     ~Arranger() override
@@ -551,8 +557,9 @@ public:
             ClipModel clip;
             clip.id = juce::Uuid().toString();
             clip.file = f;
-            clip.startBeats = startBeats;
+            clip.startBeats  = startBeats;
             clip.lengthBeats = estimateBeatsFromFile(f, bpmValue);
+            clip.offsetBeats = 0.0;
 
             auto& lane = tracks[(size_t)laneIdx];
             auto name = extractTrackNameFromAudio(f);
@@ -682,6 +689,7 @@ public:
             [&](const TrackModel& t){ return t.id == id; });
         if (it != tracks.end()) tracks.erase(it);
         refreshAll();
+        if (onProjectChanged) onProjectChanged();   // ensure playback graph rebuilds
     }
 
     // zoom deltas (+/-), optional cursor focus
@@ -770,7 +778,7 @@ private:
     DragMode dragging { DragMode::None };
     ClipComponent* activeClip { nullptr };
     juce::Point<int> dragStartPos;
-    double clipStartBeatsAtDown { 0.0 }, clipLenBeatsAtDown { 0.0 };
+    double clipStartBeatsAtDown { 0.0 }, clipLenBeatsAtDown { 0.0 }, clipOffsetBeatsAtDown { 0.0 };
     int startLaneIndex { -1 };
     int targetLaneIndex { -1 };
 
@@ -840,8 +848,7 @@ private:
             auto& tm = tracks[i];
             auto lane = std::make_unique<TrackLaneComponent>(
                 tm,
-[this, i](TrackModel&) { setSelectedLane((int)i); },
-
+                [this, i](TrackModel&) { setSelectedLane((int)i); },
                 [this](size_t idx){ duplicateTrack(idx); },
                 [this](TrackLaneComponent&, int yInContent)
                 {
@@ -864,7 +871,7 @@ private:
                 },
                 i
             );
-            
+
             lane->setSelected((int)i == selectedLaneIndex);
             content.addAndMakeVisible(lane.get());
             laneComps.emplace_back(std::move(lane));
@@ -1046,6 +1053,7 @@ private:
             dragStartPos = e.getEventRelativeTo(&content).getPosition();
             clipStartBeatsAtDown = cc->model.startBeats;
             clipLenBeatsAtDown   = cc->model.lengthBeats;
+            clipOffsetBeatsAtDown= cc->model.offsetBeats;
         }
         else
         {
@@ -1110,8 +1118,11 @@ private:
             if (snapToGrid) { newStart = std::round(newStart); newLen = std::round(newLen); }
             newStart = juce::jmax(0.0, newStart);
             newLen   = juce::jmax(1.0, newLen);
+
+            const double delta = newStart - clipStartBeatsAtDown; // how much we trimmed
             cm.startBeats  = newStart;
             cm.lengthBeats = newLen;
+            cm.offsetBeats = juce::jmax(0.0, clipOffsetBeatsAtDown + delta); // advance into file
         }
         else if (dragging == DragMode::Right)
         {
@@ -1304,6 +1315,7 @@ private:
                     right.file        = it->file;
                     right.startBeats  = beat;
                     right.lengthBeats = rightLen;
+                    right.offsetBeats = it->offsetBeats + (beat - it->startBeats); // preserve audible offset
 
                     t.clips.insert(it + 1, std::move(right));
 

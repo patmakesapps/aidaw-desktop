@@ -19,7 +19,7 @@ juce_add_gui_app(AIDAW
 
 target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/Main.cpp
-    # Headers are included by Main.cpp; .cpps optional
+    # If you later split into .cpps for headers below, add them here
     # apps/AIDAW/Source/ui/Arranger.cpp
     # apps/AIDAW/Source/ui/TopBar.cpp
 )
@@ -37,7 +37,7 @@ target_link_libraries(AIDAW PRIVATE
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_utils
-    juce::juce_audio_formats          # <-- required for AudioFormatManager/Readers
+    juce::juce_audio_formats          # AudioFormatManager/Readers
 )
 
 juce_generate_juce_header(AIDAW)
