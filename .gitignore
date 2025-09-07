@@ -1,0 +1,42 @@
+# Build artifacts
+/build/
+/out/
+/bin/
+/dist/
+/*.user
+*.obj
+*.o
+*.pdb
+*.idb
+*.ilk
+*.exe
+*.app
+*.dSYM/
+*.dll
+*.lib
+*.exp
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Testing/
+compile_commands.json
+
+# Visual Studio
+.vs/
+*.vcxproj*
+*.sln
+*.opensdf
+*.sdf
+*.ipch
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
