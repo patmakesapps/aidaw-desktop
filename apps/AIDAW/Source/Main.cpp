@@ -12,9 +12,11 @@ public:
     void paint(juce::Graphics& g) override
     {
         g.fillAll(juce::Colours::black);
-        g.setColour(juce::Colours::white);
-        g.setFont(24.0f);
-        g.drawFittedText("AIDAW — engine check", getLocalBounds(), juce::Justification::centred, 1);
+       g.setColour(juce::Colours::white);
+g.setFont(juce::Font("Arial", 24.0f, juce::Font::plain));
+g.drawFittedText("AIDAW - engine check", getLocalBounds(), juce::Justification::centred, 1);
+
+
     }
 };
 
@@ -51,6 +53,7 @@ public:
 {
     mainWindow_.reset();
     deviceManager_.closeAudioDevice(); 
+
 }
 
 
