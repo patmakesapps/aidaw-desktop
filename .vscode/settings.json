@@ -1,0 +1,7 @@
+{
+  "cmake.useCMakePresets": "never",
+  "cmake.generator": "Visual Studio 17 2022",
+  "cmake.configureOnOpen": true,
+  "cmake.buildDirectory": "build/${buildType}",
+  "cmake.installPrefix": "${workspaceFolder}/dist"
+}
