@@ -1,7 +1,149 @@
 #include <JuceHeader.h>
+#include <cmath>
 #include "ui/TopBar.h"
+#include "ui/Arranger.h"
 
-// ---------------- Metronome audio source ----------------
+
+/* ---------------- Simple timeline playback that mixes all clips ----------------
+   - No time-stretching; clips play at natural speed, positioned by startBeats.
+   - If an audio file's sample-rate differs from the device, we resample on the fly.
+------------------------------------------------------------------------------- */
+class TimelineAudioSource : public juce::AudioSource
+{
+public:
+    TimelineAudioSource(std::vector<TrackModel>& tracksRef, double& bpmRefIn)
+        : tracks(tracksRef), bpmRef(bpmRefIn)
+    {
+        fmt.registerBasicFormats();
+    }
+
+    void setPlaying(bool on)      { playing = on; }
+    void resetToStart()           { playheadSamples = 0; }
+    void requestRebuild()         { needsRebuild = true; }
+
+    void prepareToPlay (int samplesPerBlockExpected, double sampleRateIn) override
+    {
+        juce::ignoreUnused(samplesPerBlockExpected);
+        deviceSampleRate = sampleRateIn;
+        buildReaders();
+    }
+
+    void releaseResources() override
+    {
+        resamplers.clear();
+        sources.clear();
+        clipModels.clear();
+        resampleRatios.clear();
+        scratch.setSize(0,0);
+    }
+
+    void getNextAudioBlock (const juce::AudioSourceChannelInfo& info) override
+    {
+        info.clearActiveBufferRegion();
+        if (!playing || deviceSampleRate <= 0.0)
+        {
+            playheadSamples += info.numSamples;
+            return;
+        }
+
+        if (needsRebuild) { buildReaders(); needsRebuild = false; }
+
+        if (scratch.getNumChannels() < juce::jmax(2, info.buffer->getNumChannels()) || scratch.getNumSamples() < info.numSamples)
+            scratch.setSize(juce::jmax(2, info.buffer->getNumChannels()), info.numSamples, false, false, true);
+
+        const int64 blockStart = playheadSamples;
+        const int64 blockEnd   = blockStart + info.numSamples;
+
+        for (size_t i = 0; i < sources.size(); ++i)
+        {
+            auto* model = clipModels[i];
+            const double secPerBeat = 60.0 / juce::jmax(1.0, bpmRef);
+            const int64 clipStart  = (int64) std::llround(model->startBeats * secPerBeat * deviceSampleRate);
+            const int64 clipLen    = (int64) std::llround(model->lengthBeats * secPerBeat * deviceSampleRate);
+            const int64 clipEnd    = clipStart + clipLen;
+
+            // overlap with current block?
+            const int64 segStart = std::max(blockStart, clipStart);
+            const int64 segEnd   = std::min(blockEnd,   clipEnd);
+            const int   segLen   = (int) std::max<int64>(0, segEnd - segStart);
+            if (segLen <= 0) continue;
+
+            // where to put it in output buffer
+            const int outOffset = (int) (segStart - blockStart);
+
+            // position inside the source (in the reader's sample-rate domain)
+            const double ratio = resampleRatios[i]; // inSamples per outSample
+            const int64 clipPosOutSamples = segStart - clipStart;
+            const int64 clipPosInSamples  = (int64) std::llround((double)clipPosOutSamples * ratio);
+
+            sources[i]->setNextReadPosition(clipPosInSamples);
+
+            scratch.clear();
+            juce::AudioSourceChannelInfo segInfo(&scratch, 0, segLen);
+            resamplers[i]->getNextAudioBlock(segInfo);
+
+            // mix into destination
+            for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+            {
+                const float* src = scratch.getReadPointer(juce::jmin(ch, scratch.getNumChannels()-1));
+                float* dst = info.buffer->getWritePointer(ch, info.startSample + outOffset);
+                juce::FloatVectorOperations::add(dst, src, segLen);
+            }
+        }
+
+        playheadSamples += info.numSamples;
+    }
+
+private:
+    void buildReaders()
+    {
+        resamplers.clear(); sources.clear(); clipModels.clear(); resampleRatios.clear();
+
+        for (auto& t : tracks)
+        {
+            for (auto& c : t.clips)
+            {
+                if (!c.file.existsAsFile()) continue;
+
+                if (auto* raw = fmt.createReaderFor(c.file))  // ownership passed to readerSource
+                {
+                    auto src = std::make_unique<juce::AudioFormatReaderSource>(raw, true /* take ownership */);
+                    auto res = std::make_unique<juce::ResamplingAudioSource>(src.get(), false, 2);
+
+                    const double ratio = raw->sampleRate / deviceSampleRate; // inSamples per outSample
+                    res->setResamplingRatio(std::max(0.01, ratio));
+                    res->prepareToPlay(512, deviceSampleRate);
+
+                    clipModels.push_back(&c);
+                    sources.emplace_back(std::move(src));
+                    resamplers.emplace_back(std::move(res));
+                    resampleRatios.push_back(ratio);
+                }
+            }
+        }
+
+        scratch.setSize(2, 512);
+    }
+
+    std::vector<TrackModel>& tracks;
+    double& bpmRef;
+
+    juce::AudioFormatManager fmt;   // non-copyable; we register in ctor
+    double deviceSampleRate { 0.0 };
+    bool   playing { false };
+    bool   needsRebuild { true };
+    int64  playheadSamples { 0 };
+
+    // per-clip playback chain
+    std::vector<std::unique_ptr<juce::AudioFormatReaderSource>> sources;
+    std::vector<std::unique_ptr<juce::ResamplingAudioSource>>   resamplers;
+    std::vector<double>                                         resampleRatios;
+    std::vector<ClipModel*>                                     clipModels;
+
+    juce::AudioBuffer<float> scratch;
+};
+
+/* ---------------- Metronome audio source ---------------- */
 class MetronomeSource : public juce::AudioSource
 {
 public:
@@ -57,7 +199,7 @@ public:
     void setBpm(double bpmIn)      { bpm = juce::jlimit(40.0, 300.0, bpmIn); updateTiming(); }
     void setPlaying(bool isOn)     { playing = isOn; }
     void setClickEnabled(bool on)  { clickEnabled = on; }
-    void reset()                   { samplesUntilTick = 0; burstSamplesRemaining = 0; /* TODO: reset song marker to 0 */ }
+    void reset()                   { samplesUntilTick = 0; burstSamplesRemaining = 0; }
 
 private:
     void updateTiming()
@@ -80,32 +222,40 @@ private:
     double phase { 0.0 };
 };
 
-// ---------------- Main UI ----------------
+/* ---------------- Main UI ---------------- */
 class MainComponent : public juce::Component
 {
 public:
-    MainComponent(juce::AudioDeviceManager& dm, MetronomeSource& metro)
-        : deviceManager(dm), metronome(metro)
+    MainComponent(juce::MixerAudioSource& mix, MetronomeSource& metro)
+        : mixer(mix), metronome(metro), timeline(arranger.tracks, currentBpm)
     {
         setOpaque(true);
 
         addAndMakeVisible(topBar);
+        addAndMakeVisible(arranger);
 
-        // Transport & metronome
+        // audio graph
+        mixer.addInputSource(&metronome, false);
+        mixer.addInputSource(&timeline,  false);
+
+        arranger.onProjectChanged = [this] { timeline.requestRebuild(); };
+
+        // Transport & metronome + timeline
         topBar.onPlayPause = [this](bool isPlaying)
         {
-            // TopBar already blocks pause while armed
             if (recordArmed && playing) return;
             playing = isPlaying;
             metronome.setPlaying(playing);
+            timeline.setPlaying(playing);
         };
 
         topBar.onStop = [this]()
         {
-            // STOP: fully stop + reset (and later reset marker to 0)
             playing = false;
             metronome.setPlaying(false);
             metronome.reset();
+            timeline.setPlaying(false);
+            timeline.resetToStart();
             topBar.setPlaying(false);
         };
 
@@ -115,8 +265,20 @@ public:
             if (playing) topBar.setPlaying(true);
         };
 
-        topBar.onTempoChanged = [this](double bpm) { metronome.setBpm(bpm); };
-        topBar.onClickToggled = [this](bool on)    { metronome.setClickEnabled(on); };
+        // Sync BPM + snap with Arranger
+        topBar.onTempoChanged = [this](double bpm)
+        {
+            currentBpm = bpm;
+            metronome.setBpm(bpm);
+            arranger.setBPM(bpm);
+        };
+
+        // For now, map Click toggle to Arranger snap
+        topBar.onClickToggled = [this](bool on)
+        {
+            metronome.setClickEnabled(on);
+            arranger.setSnap(on);
+        };
 
         // Window controls
         topBar.onMinimize = [this]()
@@ -130,10 +292,22 @@ public:
                 app->systemRequestedQuit();
         };
 
-        // Keyboard focus for spacebar
-        setWantsKeyboardFocus(true);
+        topBar.onTitleChanged = [](const juce::String& newTitle)
+        {
+            juce::Logger::writeToLog("Project title changed: " + newTitle);
+        };
 
+        if (arranger.tracks.empty())
+            arranger.addTrack("Audio 1");
+
+        setWantsKeyboardFocus(true);
         setSize(1200, 720);
+    }
+
+    ~MainComponent() override
+    {
+        mixer.removeInputSource(&timeline);
+        mixer.removeInputSource(&metronome);
     }
 
     void paint(juce::Graphics& g) override { g.fillAll(juce::Colours::black); }
@@ -142,27 +316,28 @@ public:
     {
         auto area = getLocalBounds();
         topBar.setBounds(area.removeFromTop(56));
-        // content area: 'area'
+        arranger.setBounds(area.reduced(8, 8));
     }
 
     bool keyPressed (const juce::KeyPress& key) override
     {
-        // SPACE = START/STOP ONLY (never pause)
+        // SPACE = START/STOP ONLY
         if (key.getTextCharacter() == ' ')
         {
             if (playing)
             {
-                // STOP
                 playing = false;
                 metronome.setPlaying(false);
-                metronome.reset();       // also where the future song marker resets to 0
+                metronome.reset();
+                timeline.setPlaying(false);
+                timeline.resetToStart();
                 topBar.setPlaying(false);
             }
             else
             {
-                // START (if record armed, still just plays—no pause state anywhere for space)
                 playing = true;
                 metronome.setPlaying(true);
+                timeline.setPlaying(true);
                 topBar.setPlaying(true);
             }
             return true;
@@ -170,37 +345,51 @@ public:
         return false;
     }
 
+    // Ctrl+wheel zooms the Arranger
+    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (e.mods.isCtrlDown())
+        {
+            arranger.zoomDelta(wheel.deltaY);
+            return;
+        }
+        juce::Component::mouseWheelMove(e, wheel);
+    }
+
 private:
     TopBar topBar;
+    Arranger arranger;
 
-    juce::AudioDeviceManager& deviceManager;
-    MetronomeSource&          metronome;
+    juce::MixerAudioSource& mixer;
+    MetronomeSource&        metronome;
+    TimelineAudioSource     timeline;
 
-    bool playing     { false };
-    bool recordArmed { false };
+    bool   playing     { false };
+    bool   recordArmed { false };
+    double currentBpm  { 120.0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
-// ---------------- Main window / app ----------------
+/* ---------------- Main window / app ---------------- */
 class MainWindow : public juce::DocumentWindow,
                    private juce::KeyListener
 {
 public:
-    MainWindow(juce::AudioDeviceManager& dm, MetronomeSource& metro)
+    MainWindow(juce::AudioDeviceManager& dm, juce::MixerAudioSource& mix, MetronomeSource& metro)
         : juce::DocumentWindow("AIDAW", juce::Colours::black, 0 /* no OS buttons */)
     {
-        setUsingNativeTitleBar(false);   // custom TopBar
+        setUsingNativeTitleBar(false);
         setTitleBarHeight(0);
         setResizable(true, true);
 
-        setContentOwned(new MainComponent(dm, metro), true);
+        setContentOwned(new MainComponent(mix, metro), true);
 
         setBounds(juce::Desktop::getInstance().getDisplays()
                       .getPrimaryDisplay()->userArea);
         setVisible(true);
 
-        addKeyListener(this); // for F11/Esc
+        addKeyListener(this);
     }
 
     void closeButtonPressed() override
@@ -226,12 +415,18 @@ public:
 
     void initialise (const juce::String&) override
     {
+        // --- Windows emoji/UTF-8 glyph fix for toolbar icons (🔍 ✂ ↔ ⛓, etc.) ---
+        #if JUCE_WINDOWS
+        juce::LookAndFeel::getDefaultLookAndFeel()
+            .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
+        #endif
+
         deviceManager.initialise(0, 2, nullptr, true);
 
-        player.setSource(&metronome);
+        player.setSource(&mixer);
         deviceManager.addAudioCallback(&player);
 
-        mainWindow = std::make_unique<MainWindow>(deviceManager, metronome);
+        mainWindow = std::make_unique<MainWindow>(deviceManager, mixer, metronome);
     }
 
     void shutdown() override
@@ -247,6 +442,7 @@ public:
 private:
     juce::AudioDeviceManager deviceManager;
     juce::AudioSourcePlayer  player;
+    juce::MixerAudioSource   mixer;
     MetronomeSource          metronome;
 
     std::unique_ptr<MainWindow> mainWindow;

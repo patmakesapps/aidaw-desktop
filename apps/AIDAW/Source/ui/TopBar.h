@@ -78,12 +78,18 @@ public:
         record.addListener(this);
         addAndMakeVisible(record);
 
-        // Title (absolute center)
-        title.setText("AIDAW", juce::dontSendNotification);
-        title.setJustificationType(juce::Justification::centred);
-        title.setColour(juce::Label::textColourId, juce::Colour(0x88FFFFFF));
-        title.setFont(juce::Font(18.0f, juce::Font::bold));
-        addAndMakeVisible(title);
+       // Title (absolute center) — editable on single click
+title.setText("AIDAW", juce::dontSendNotification);
+title.setJustificationType(juce::Justification::centred);
+title.setColour(juce::Label::textColourId, juce::Colour(0x88FFFFFF));
+title.setFont(juce::Font(18.0f, juce::Font::bold));
+title.setEditable(true, true, false);
+title.onTextChange = [this]()
+{
+    if (onTitleChanged) onTitleChanged(title.getText());
+};
+addAndMakeVisible(title);
+
 
         // BPM tight pill
         bpmLabelLeft.setText("BPM", juce::dontSendNotification);
@@ -134,6 +140,8 @@ public:
     std::function<void(bool)>   onClickToggled;
     std::function<void()>       onMinimize;
     std::function<void()>       onClose;
+    std::function<void(const juce::String&)> onTitleChanged;
+
 
     // State
     void setPlaying(bool shouldPlay)
