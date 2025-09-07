@@ -28,10 +28,8 @@ public:
     {
         auto r  = b.getLocalBounds().toFloat();
         auto bg = base.brighter(hi ? 0.10f : 0.0f).darker(down ? 0.20f : 0.0f);
-        g.setColour(bg);
-        g.fillRoundedRectangle(r, 10.0f);
-        g.setColour(juce::Colour(0x22FFFFFF));
-        g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
+        g.setColour(bg); g.fillRoundedRectangle(r, 10.0f);
+        g.setColour(juce::Colour(0x22FFFFFF)); g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
     }
 
     void drawToggleButton(juce::Graphics& g, juce::ToggleButton& b,
@@ -44,8 +42,7 @@ public:
         if (hi)   base = base.brighter(0.1f);
         if (down) base = base.darker(0.2f);
 
-        g.setColour(base);
-        g.fillRoundedRectangle(r, 12.0f);
+        g.setColour(base); g.fillRoundedRectangle(r, 12.0f);
         g.setColour(on ? juce::Colour(0xFF0F5D2E) : juce::Colour(0x22FFFFFF));
         g.drawRoundedRectangle(r.reduced(0.5f), 12.0f, 1.0f);
 
@@ -68,12 +65,12 @@ public:
         // Transport
         playPause.setButtonText("Play");
         playPause.addListener(this);
-        playPause.setTooltip("Space = Play/Stop");
+        playPause.setTooltip("Space = Play/Pause");
         addAndMakeVisible(playPause);
 
         stop.setButtonText("Stop");
         stop.addListener(this);
-        stop.setTooltip("Stop (Return to start)");
+        stop.setTooltip("Stop and return to start");
         addAndMakeVisible(stop);
 
         record.setButtonText("Rec");
@@ -81,25 +78,21 @@ public:
         record.setTooltip("Arm recording");
         addAndMakeVisible(record);
 
-        // Title (absolute center) — editable on single click
+        // Title
         title.setText("AIDAW", juce::dontSendNotification);
         title.setJustificationType(juce::Justification::centred);
         title.setColour(juce::Label::textColourId, juce::Colour(0x88FFFFFF));
         title.setFont(juce::Font(18.0f, juce::Font::bold));
         title.setEditable(true, true, false);
-        title.onTextChange = [this]()
-        {
-            if (onTitleChanged) onTitleChanged(title.getText());
-        };
+        title.onTextChange = [this](){ if (onTitleChanged) onTitleChanged(title.getText()); };
         addAndMakeVisible(title);
 
-        // BPM tight pill
+        // BPM pill
         bpmLabelLeft.setText("BPM", juce::dontSendNotification);
         bpmLabelLeft.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(bpmLabelLeft);
 
-        minusBtn.addListener(this); minusBtn.setButtonText("-");
-        minusBtn.setTooltip("Tempo -1");
+        minusBtn.addListener(this); minusBtn.setButtonText("-"); minusBtn.setTooltip("Tempo -1");
         addAndMakeVisible(minusBtn);
 
         bpmEdit.setText(juce::String(currentBPM, 2), juce::dontSendNotification);
@@ -114,8 +107,7 @@ public:
         bpmLabelRight.setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(bpmLabelRight);
 
-        plusBtn.addListener(this); plusBtn.setButtonText("+");
-        plusBtn.setTooltip("Tempo +1");
+        plusBtn.addListener(this); plusBtn.setButtonText("+"); plusBtn.setTooltip("Tempo +1");
         addAndMakeVisible(plusBtn);
 
         clickToggle.setButtonText("Click");
@@ -145,10 +137,8 @@ public:
     void setPlaying(bool shouldPlay)
     {
         isPlaying = shouldPlay;
-
-        const bool showPause = isPlaying && !recordArmed; // no pause while armed
+        const bool showPause = isPlaying && !recordArmed;
         playPause.setButtonText(showPause ? "Pause" : "Play");
-
         playPause.setColour(juce::TextButton::buttonColourId,
                             isPlaying ? juce::Colour(0xFF3B82F6) : juce::Colour(0xFF2A2A2A));
         repaint();
@@ -204,18 +194,16 @@ public:
         const int transW    = 84;
         const int winBtnW   = 48;
 
-        const int pillW     = 320; // tight pill
+        const int pillW     = 320;
         const int clickW    = 76;
 
         auto r = getLocalBounds().reduced(sidePad, vpad);
 
-        // Right window controls
         auto win = r.removeFromRight(winBtnW * 2 + gap);
         btnClose.setBounds(win.removeFromRight(winBtnW).reduced(4));
         win.removeFromRight(gap);
         btnMin.setBounds(win.removeFromRight(winBtnW).reduced(4));
 
-        // Left transport
         const int transportW = transW * 3 + gap * 2;
         auto left = r.removeFromLeft(transportW);
         playPause.setBounds(left.removeFromLeft(transW).withHeight(btnH));
@@ -224,17 +212,14 @@ public:
         left.removeFromLeft(gap);
         record.setBounds(left.removeFromLeft(transW).withHeight(btnH));
 
-        // Reserve BPM + Click on right
         r.removeFromRight(12);
         auto pillBlock = r.removeFromRight(pillW + gap + clickW);
         bpmPillBounds  = pillBlock.removeFromLeft(pillW);
 
-        // Title ABS centered
         const int titleW = 200, titleH = btnH;
         const int cx     = getWidth() / 2;
         title.setBounds(cx - titleW/2, vpad, titleW, titleH);
 
-        // Sleeker BPM pill layout
         auto inside = bpmPillBounds.reduced(12, 8);
         int totalW = inside.getWidth();
         int btnW   = 28;
@@ -254,12 +239,11 @@ public:
     }
 
 private:
-    // UI callbacks
     void buttonClicked(juce::Button* b) override
     {
         if (b == &playPause)
         {
-            if (recordArmed && isPlaying) return; // no pause while armed
+            if (recordArmed && isPlaying) return;
             if (!isPlaying) { setPlaying(true);  if (onPlayPause) onPlayPause(true);  }
             else            { setPlaying(false); if (onPlayPause) onPlayPause(false); }
         }
@@ -299,20 +283,15 @@ private:
 
     AIDAWLook        look;
 
-    // Transport
     juce::TextButton playPause, stop, record;
-
-    // Title
     juce::Label      title;
 
-    // BPM pill
     juce::Rectangle<int> bpmPillBounds;
     juce::Label      bpmLabelLeft, bpmLabelRight;
     juce::TextButton minusBtn, plusBtn;
     juce::TextEditor bpmEdit;
     juce::ToggleButton clickToggle;
 
-    // Window controls
     juce::TextButton btnMin, btnClose;
 
     bool   isPlaying    { false };

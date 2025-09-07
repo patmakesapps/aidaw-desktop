@@ -1,31 +1,54 @@
 #include <JuceHeader.h>
 #include <cmath>
+#include <atomic>
+
 #include "ui/TopBar.h"
 #include "ui/Arranger.h"
 
-/* ---------------- Simple timeline playback that mixes all clips ----------------
-   - No time-stretching; clips play at natural speed, positioned by startBeats.
-   - If an audio file's sample-rate differs from the device, we resample on the fly.
-   - Uses ClipModel::offsetBeats so visual trimming = audible trimming.
-------------------------------------------------------------------------------- */
+/* ============================================================
+   TimelineAudioSource
+   - Plays clips at start/length in beats
+   - Uses offsetBeats so left-trims are audible
+   - Exposes get/set playhead in beats
+   - Produces SILENCE while paused (no stuck-buffer audio)
+   ============================================================ */
 class TimelineAudioSource : public juce::AudioSource
 {
 public:
     TimelineAudioSource(std::vector<TrackModel>& tracksRef, double& bpmRefIn)
-        : tracks(tracksRef), bpmRef(bpmRefIn)
+        : tracks(tracksRef), bpmRef(bpmRefIn) { fmt.registerBasicFormats(); }
+
+    void setPlaying(bool on)      { playing.store(on); }
+    void resetToStart()           { playheadSamples.store(0); }
+    void requestRebuild()         { needsRebuild.store(true); }
+
+    // Playhead <-> beats API
+    double getPlayheadBeats() const
     {
-        fmt.registerBasicFormats();
+        if (deviceSampleRate <= 0.0 || bpmRef <= 0.0) return 0.0;
+        const double secPerBeat = 60.0 / bpmRef;
+        return (double) playheadSamples.load() / deviceSampleRate / secPerBeat;
+    }
+    void setPlayheadBeats(double beats)
+    {
+        if (deviceSampleRate <= 0.0 || bpmRef <= 0.0)
+        { pendingSeekBeats.store(juce::jmax(0.0, beats)); return; }
+
+        const double secPerBeat = 60.0 / bpmRef;
+        const int64 target = (int64) std::llround(juce::jmax(0.0, beats) * secPerBeat * deviceSampleRate);
+        playheadSamples.store(target);
     }
 
-    void setPlaying(bool on)      { playing = on; }
-    void resetToStart()           { playheadSamples = 0; }
-    void requestRebuild()         { needsRebuild = true; }
-
-    void prepareToPlay (int samplesPerBlockExpected, double sampleRateIn) override
+    void prepareToPlay (int /*samplesPerBlockExpected*/, double sampleRateIn) override
     {
-        juce::ignoreUnused(samplesPerBlockExpected);
         deviceSampleRate = sampleRateIn;
         buildReaders();
+        // apply any pending seek requested before audio device opened
+        if (pendingSeekBeats.load() > 0.0)
+        {
+            setPlayheadBeats(pendingSeekBeats.load());
+            pendingSeekBeats.store(0.0);
+        }
     }
 
     void releaseResources() override
@@ -41,25 +64,28 @@ public:
     {
         info.clearActiveBufferRegion();
 
-        // Do NOT advance playhead while stopped/paused.
-        if (!playing || deviceSampleRate <= 0.0)
+        if (deviceSampleRate <= 0.0)
             return;
 
-        if (needsRebuild) { buildReaders(); needsRebuild = false; }
+        // produce silence while paused
+        if (!playing.load())
+            return;
 
-        if (scratch.getNumChannels() < juce::jmax(2, info.buffer->getNumChannels()) || scratch.getNumSamples() < info.numSamples)
+        if (needsRebuild.exchange(false))
+            buildReaders();
+
+        if (scratch.getNumChannels() < juce::jmax(2, info.buffer->getNumChannels())
+            || scratch.getNumSamples() < info.numSamples)
             scratch.setSize(juce::jmax(2, info.buffer->getNumChannels()), info.numSamples, false, false, true);
 
-        const int64 blockStart = playheadSamples;
+        const int64 blockStart = playheadSamples.load();
         const int64 blockEnd   = blockStart + info.numSamples;
 
         for (size_t i = 0; i < sources.size(); ++i)
         {
             auto* model = clipModels[i];
-
             const double secPerBeat = 60.0 / juce::jmax(1.0, bpmRef);
 
-            // Floor/ceil to avoid chopping the first transient by rounding forward.
             const int64 clipStart = (int64) std::floor(model->startBeats  * secPerBeat * deviceSampleRate);
             const int64 clipLen   = (int64) std::ceil (model->lengthBeats * secPerBeat * deviceSampleRate);
             const int64 clipEnd   = clipStart + clipLen;
@@ -71,10 +97,8 @@ public:
 
             const int outOffset = (int) (segStart - blockStart);
 
-            // Offset into the source file when the clip was trimmed from the left.
             const int64 offsetOutSamples =
                 (int64) std::llround(model->offsetBeats * secPerBeat * deviceSampleRate);
-
             const int64 clipPosOutSamples = (segStart - clipStart) + offsetOutSamples;
 
             const double ratio = resampleRatios[i]; // inSamples per outSample
@@ -95,7 +119,7 @@ public:
             }
         }
 
-        playheadSamples += info.numSamples;
+        playheadSamples.fetch_add(info.numSamples);
     }
 
 private:
@@ -108,16 +132,13 @@ private:
             for (auto& c : t.clips)
             {
                 if (!c.file.existsAsFile()) continue;
-
                 if (auto* raw = fmt.createReaderFor(c.file))
                 {
                     auto src = std::make_unique<juce::AudioFormatReaderSource>(raw, true);
                     auto res = std::make_unique<juce::ResamplingAudioSource>(src.get(), false, 2);
-
                     const double ratio = raw->sampleRate / deviceSampleRate; // inSamples per outSample
                     res->setResamplingRatio(std::max(0.01, ratio));
                     res->prepareToPlay(512, deviceSampleRate);
-
                     clipModels.push_back(&c);
                     sources.emplace_back(std::move(src));
                     resamplers.emplace_back(std::move(res));
@@ -125,7 +146,6 @@ private:
                 }
             }
         }
-
         scratch.setSize(2, 512);
     }
 
@@ -134,9 +154,11 @@ private:
 
     juce::AudioFormatManager fmt;
     double deviceSampleRate { 0.0 };
-    bool   playing { false };
-    bool   needsRebuild { true };
-    int64  playheadSamples { 0 };
+
+    std::atomic<bool>   playing { false };
+    std::atomic<bool>   needsRebuild { true };
+    std::atomic<int64>  playheadSamples { 0 };
+    std::atomic<double> pendingSeekBeats { 0.0 };
 
     std::vector<std::unique_ptr<juce::AudioFormatReaderSource>> sources;
     std::vector<std::unique_ptr<juce::ResamplingAudioSource>>   resamplers;
@@ -146,19 +168,19 @@ private:
     juce::AudioBuffer<float> scratch;
 };
 
-/* ---------------- Metronome audio source ---------------- */
+/* ============================================================
+   Metronome
+   ============================================================ */
 class MetronomeSource : public juce::AudioSource
 {
 public:
-    void prepareToPlay (int samplesPerBlockExpected, double sampleRateIn) override
+    void prepareToPlay (int /*samplesPerBlockExpected*/, double sampleRateIn) override
     {
-        juce::ignoreUnused(samplesPerBlockExpected);
         sampleRate = sampleRateIn;
         updateTiming();
         phase = 0.0;
         reset();
     }
-
     void releaseResources() override {}
 
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& bufferToFill) override
@@ -171,7 +193,6 @@ public:
         for (int i = 0; i < bufferToFill.numSamples; ++i)
         {
             float sample = 0.0f;
-
             if (playing && clickEnabled && sampleRate > 0.0)
             {
                 if (samplesUntilTick <= 0)
@@ -179,7 +200,6 @@ public:
                     burstSamplesRemaining = (int)(0.008 * sampleRate);
                     samplesUntilTick += (int)samplesPerBeat;
                 }
-
                 if (burstSamplesRemaining > 0)
                 {
                     auto env   = (float)burstSamplesRemaining / (float)(0.008 * sampleRate);
@@ -188,10 +208,8 @@ public:
                     if (phase > twoPi) phase -= twoPi;
                     --burstSamplesRemaining;
                 }
-
                 --samplesUntilTick;
             }
-
             left[i] = left[i] + sample;
             if (right) right[i] = right[i] + sample;
         }
@@ -203,28 +221,23 @@ public:
     void reset()                   { samplesUntilTick = 0; burstSamplesRemaining = 0; }
 
 private:
-    void updateTiming()
-    {
-        if (sampleRate > 0.0)
-            samplesPerBeat = sampleRate * (60.0 / bpm);
-    }
+    void updateTiming(){ if (sampleRate > 0.0) samplesPerBeat = sampleRate * (60.0 / bpm); }
 
     double sampleRate { 0.0 };
     double bpm        { 120.0 };
     double samplesPerBeat { 0.0 };
-
     bool   playing { false };
     bool   clickEnabled { true };
-
     int    samplesUntilTick { 0 };
     int    burstSamplesRemaining { 0 };
-
     static constexpr double twoPi = juce::MathConstants<double>::twoPi;
     double phase { 0.0 };
 };
 
-/* ---------------- Main UI ---------------- */
-class MainComponent : public juce::Component
+/* ============================================================
+   Main UI
+   ============================================================ */
+class MainComponent : public juce::Component, private juce::Timer
 {
 public:
     MainComponent(juce::MixerAudioSource& mix, MetronomeSource& metro)
@@ -235,10 +248,7 @@ public:
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
 
-        // Tooltip manager (enables hover tooltips globally)
-        // Show delay 350ms; parented to this component.
-        // Just declaring as a member is enough.
-        // (See member declaration below.)
+        // Tooltip manager (fixes emoji glyphs on Windows when combined with LookAndFeel font set in App)
         (void)tooltip;
 
         mixer.addInputSource(&metronome, false);
@@ -246,12 +256,18 @@ public:
 
         arranger.onProjectChanged = [this] { timeline.requestRebuild(); };
 
+        // Playhead (arranger <-> engine)
+        arranger.onPlayheadSet = [this](double beats){ timeline.setPlayheadBeats(beats); };
+        arranger.isPlayingQuery = [this]() { return playing; };
+
         topBar.onPlayPause = [this](bool isPlaying)
         {
             if (recordArmed && playing) return;
             playing = isPlaying;
             metronome.setPlaying(playing);
             timeline.setPlaying(playing);
+            if (playing) // start from UI playhead
+                timeline.setPlayheadBeats(arranger.getPlayheadBeats());
         };
 
         topBar.onStop = [this]()
@@ -261,6 +277,7 @@ public:
             metronome.reset();
             timeline.setPlaying(false);
             timeline.resetToStart();
+            arranger.setPlayheadBeats(0.0);
             topBar.setPlaying(false);
         };
 
@@ -294,17 +311,16 @@ public:
                 app->systemRequestedQuit();
         };
 
-        topBar.onTitleChanged = [](const juce::String& newTitle)
-        {
-            juce::Logger::writeToLog("Project title changed: " + newTitle);
-        };
-
         setWantsKeyboardFocus(true);
         setSize(1200, 720);
+
+        // UI refresh for playhead at ~30Hz
+        startTimerHz(30);
     }
 
     ~MainComponent() override
     {
+        stopTimer();
         mixer.removeInputSource(&timeline);
         mixer.removeInputSource(&metronome);
     }
@@ -328,7 +344,6 @@ public:
                 metronome.setPlaying(false);
                 metronome.reset();
                 timeline.setPlaying(false);
-                timeline.resetToStart();
                 topBar.setPlaying(false);
             }
             else
@@ -336,6 +351,7 @@ public:
                 playing = true;
                 metronome.setPlaying(true);
                 timeline.setPlaying(true);
+                timeline.setPlayheadBeats(arranger.getPlayheadBeats());
                 topBar.setPlaying(true);
             }
             return true;
@@ -354,6 +370,12 @@ public:
     }
 
 private:
+    void timerCallback() override
+    {
+        // Follow engine playhead
+        arranger.setPlayheadBeats(timeline.getPlayheadBeats());
+    }
+
     TopBar topBar;
     Arranger arranger;
 
@@ -365,13 +387,14 @@ private:
     bool   recordArmed { false };
     double currentBpm  { 120.0 };
 
-    // Tooltip Window: enables hover tooltips across the app
     juce::TooltipWindow tooltip { this, 350 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
-/* ---------------- Main window / app ---------------- */
+/* ============================================================
+   Window / App
+   ============================================================ */
 class MainWindow : public juce::DocumentWindow,
                    private juce::KeyListener
 {
@@ -382,13 +405,11 @@ public:
         setUsingNativeTitleBar(false);
         setTitleBarHeight(0);
         setResizable(true, true);
-
         setContentOwned(new MainComponent(mix, metro), true);
 
         setBounds(juce::Desktop::getInstance().getDisplays()
                       .getPrimaryDisplay()->userArea);
         setVisible(true);
-
         addKeyListener(this);
     }
 
@@ -416,16 +437,14 @@ public:
     void initialise (const juce::String&) override
     {
        #if JUCE_WINDOWS
-        // Force a font that contains emoji/symbols (🔍 ✂ ↔ ⛓ etc.)
+        // Fixes emoji/glyph toolbuttons on Windows (avoids mojibake in tooltips)
         juce::LookAndFeel::getDefaultLookAndFeel()
             .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
        #endif
 
         deviceManager.initialise(0, 2, nullptr, true);
-
         player.setSource(&mixer);
         deviceManager.addAudioCallback(&player);
-
         mainWindow = std::make_unique<MainWindow>(mixer, metronome);
     }
 

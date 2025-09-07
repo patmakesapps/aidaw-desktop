@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(AIDAW VERSION 0.1.0 LANGUAGES CXX)
 
-# --- Ensure source files and string literals are treated as UTF-8 on MSVC ---
 if (MSVC)
   add_compile_options(/utf-8)
 endif()
@@ -9,25 +8,35 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# JUCE submodule
 add_subdirectory(third_party/juce)
 
-# Create a minimal GUI app target
 juce_add_gui_app(AIDAW
     PRODUCT_NAME "AIDAW"
 )
 
+# ---------- Sources ----------
 target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/Main.cpp
-    # If you later split into .cpps for headers below, add them here
-    # apps/AIDAW/Source/ui/Arranger.cpp
-    # apps/AIDAW/Source/ui/TopBar.cpp
+
+    # UI (modularised Arranger)
+    apps/AIDAW/Source/ui/TopBar.cpp
+
+    apps/AIDAW/Source/ui/Models.h
+    apps/AIDAW/Source/ui/ThumbCache.h
+    apps/AIDAW/Source/ui/ClipComponent.h
+    apps/AIDAW/Source/ui/ClipComponent.cpp
+    apps/AIDAW/Source/ui/TrackLaneComponent.h
+    apps/AIDAW/Source/ui/TrackLaneComponent.cpp
+    apps/AIDAW/Source/ui/ArrangerCanvas.h
+    apps/AIDAW/Source/ui/ArrangerCanvas.cpp
+    apps/AIDAW/Source/ui/Arranger.h
+    apps/AIDAW/Source/ui/Arranger.cpp
 )
 
 target_compile_definitions(AIDAW PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
-    JUCE_USE_MP3AUDIOFORMAT=1         # enable MP3 decoding
+    JUCE_USE_MP3AUDIOFORMAT=1
 )
 
 target_link_libraries(AIDAW PRIVATE
@@ -37,7 +46,7 @@ target_link_libraries(AIDAW PRIVATE
     juce::juce_audio_basics
     juce::juce_audio_devices
     juce::juce_audio_utils
-    juce::juce_audio_formats          # AudioFormatManager/Readers
+    juce::juce_audio_formats
 )
 
 juce_generate_juce_header(AIDAW)
