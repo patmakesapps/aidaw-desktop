@@ -15,6 +15,9 @@ TrackLaneComponent::TrackLaneComponent(TrackModel& m,
       onDragEnd(std::move(onDragEndCb)),
       index(myIndex)
 {
+    // Let empty lane area pass clicks through to clips (no row selection)
+    setInterceptsMouseClicks(false, true);
+
     title.setText(model.name, juce::dontSendNotification);
     title.setJustificationType(juce::Justification::centredLeft);
     title.setColour(juce::Label::textColourId, juce::Colours::white);
@@ -22,7 +25,7 @@ TrackLaneComponent::TrackLaneComponent(TrackModel& m,
     title.setMinimumHorizontalScale(0.8f);
     title.onTextChange = [this]() { model.name = title.getText(); repaint(); };
     addAndMakeVisible(title);
-    title.setTooltip("Click to select lane. Double-click to duplicate.");
+    title.setTooltip("Rename track. Double-click header to duplicate. Drag header to reorder.");
 }
 
 void TrackLaneComponent::setSelected(bool on) { selected = on; repaint(); }
@@ -34,12 +37,12 @@ void TrackLaneComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xFF0F0F0F)); g.fillRect(r);
 
     auto header = r.removeFromLeft(headerWidth);
-    g.setColour(selected ? juce::Colour(0xFF1E1E1E) : juce::Colour(0xFF141414)); g.fillRect(header);
+    g.setColour(juce::Colour(0xFF141414)); g.fillRect(header);
 
     g.setColour(juce::Colour(0x22FFFFFF)); g.drawRect(header);
-    if (selected) { g.setColour(juce::Colour(0xFF3B82F6)); g.drawRect(header, 2); g.drawRect(getLocalBounds(), 2); }
 
-    g.setColour(juce::Colour(0x11FFFFFF)); g.fillRect(0, getHeight()-1, getWidth(), 1);
+    g.setColour(juce::Colour(0x11FFFFFF));
+    g.fillRect(0, getHeight()-1, getWidth(), 1);
 }
 
 void TrackLaneComponent::resized()
@@ -51,7 +54,9 @@ void TrackLaneComponent::mouseDown(const juce::MouseEvent& e)
 {
     const bool inHeader = e.position.x <= (float) headerWidth;
     draggingHeader = inHeader;
-    if (inHeader && onSelected) onSelected(model);
+
+    // No lane selection call; we’re disabling selectable rows.
+
     if (draggingHeader && onDragStart) onDragStart(*this);
 
     if (e.getNumberOfClicks() >= 2 && inHeader && onDuplicateLane)
