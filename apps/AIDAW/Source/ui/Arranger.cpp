@@ -327,8 +327,9 @@ void Arranger::refreshAll()
     {
         for (auto& c : t.clips)
         {
-            auto* cc = new ClipComponent(c, fm, cache,
-                [this]{ extendContentToMaxClip(); if(onProjectChanged) onProjectChanged(); });
+            auto* cc = new ClipComponent(c, fm, cache, bpmValue,
+    [this]{ extendContentToMaxClip(); if(onProjectChanged) onProjectChanged(); });
+
             cc->addMouseListener(this, true);
             cc->setSelected(selectedClip == &c);
             content.addAndMakeVisible(cc);
