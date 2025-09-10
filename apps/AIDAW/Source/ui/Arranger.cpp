@@ -34,12 +34,31 @@ Arranger::Arranger()
 
     setTool(ArrangerTool::Pointer);
 
+    // Viewport + content
     addAndMakeVisible(view);
     view.setViewedComponent(&content, false);
-    content.addAndMakeVisible(canvas);
+    content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
+    content.addAndMakeVisible(plusButton);   // add-track button
+    canvas.setInterceptsMouseClicks(false, false);
+
+    // "+" button wiring
+    plusButton.setTooltip("Add track");
+    plusButton.setWantsKeyboardFocus(false);
+    plusButton.onClick = [this]
+    {
+        addTrack("Audio " + juce::String((int)tracks.size() + 1));
+        // auto-scroll to the new lane
+        view.setViewPosition(view.getViewPositionX(),
+                             juce::jmax(0, contentHeight() - view.getHeight()));
+    };
+    plusButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF1C1F26));
+    plusButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.92f));
 
     setBPM(120.0);
     setSnap(true);
+
+    // Seed default lanes exactly once
+    ensureDefaultTracks(kDefaultTrackCount);
 
     refreshAll();
     applyCursorForToolEverywhere();
@@ -49,6 +68,18 @@ Arranger::~Arranger()
 {
     for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut })
         b->removeListener(this);
+}
+
+void Arranger::ensureDefaultTracks(int n)
+{
+    if (!tracks.empty()) return;
+    for (int i = 0; i < n; ++i)
+    {
+        TrackModel t;
+        t.id   = juce::Uuid().toString();
+        t.name = "Track " + juce::String(i + 1);
+        tracks.emplace_back(std::move(t));
+    }
 }
 
 void Arranger::setBPM(double bpm)
@@ -142,6 +173,11 @@ void Arranger::resized()
     btnZoomIn  .setBounds(tools.removeFromLeft(36));
 
     view.setBounds(r);
+
+    // ensure initial content size
+    if (content.getWidth() <= 0)
+        content.setSize(juce::jmax(1400, view.getWidth()), contentHeight());
+
     layoutLanes();
     layoutClips();
 }
@@ -223,30 +259,34 @@ void Arranger::removeClip(ClipModel* clip)
     if (onProjectChanged) onProjectChanged();
 }
 
-void Arranger::zoomDelta(double delta, int centerXInContent)
+/** Smooth zoom, always anchored at the drag line (playhead) **/
+void Arranger::zoomDelta(double steps)
 {
-    zoomScale = juce::jlimit(0.25, 6.0, zoomScale * (delta > 0 ? 1.15 : 0.87));
+    // 1) Measure anchor X (playhead) in current content pixels
+    const int anchorX_before = canvas.xFromBeats(playheadBeats);
+
+    // 2) Update scale
+    zoomScale     = juce::jlimit(kMinZoom, kMaxZoom, zoomScale * std::pow(kZoomBase, steps));
     pixelsPerBeat = ppbAt120 * (120.0 / bpmValue) * zoomScale;
 
-    if (centerXInContent >= 0)
-    {
-        const double beatAtCursor = canvas.beatsFromX(centerXInContent);
-        const int newX = canvas.xFromBeats(beatAtCursor);
-        const int dx = newX - centerXInContent;
-        auto p = view.getViewPosition();
-        view.setViewPosition(p.getX() + dx, p.getY());
-    }
+    // 3) Compute anchor X after scaling and pan so playhead stays pinned
+    const int anchorX_after = canvas.xFromBeats(playheadBeats);
+    const int dx = anchorX_after - anchorX_before;
 
+    auto p = view.getViewPosition();
+    view.setViewPosition(p.getX() + dx, p.getY());
+
+    // 4) Layout + redraw
     layoutClips();
     extendContentToMaxClip();
     canvas.repaint();
     repaint();
 }
 
-void Arranger::zoomDeltaFromWheel(double wheelDelta, int centerXInScreen)
+void Arranger::zoomDeltaFromWheel(double wheelDelta, int /*centerXInScreen*/)
 {
-    auto centerInContent = centerXInScreen + view.getViewPositionX();
-    zoomDelta(wheelDelta, centerInContent);
+    // We ignore mouse location and always anchor on playhead as requested.
+    zoomDelta(wheelDelta);
 }
 
 void Arranger::frameAll()
@@ -291,6 +331,7 @@ void Arranger::applyCursorForToolEverywhere()
 
 void Arranger::refreshAll()
 {
+    // rebuild lanes
     for (auto& lc : laneComps) content.removeChildComponent(lc.get());
     laneComps.clear();
 
@@ -320,15 +361,15 @@ void Arranger::refreshAll()
         laneComps.emplace_back(std::move(lane));
     }
 
+    // rebuild clips
     for (auto& cc : clipComps) content.removeChildComponent(cc.get());
     clipComps.clear();
 
     for (auto& t : tracks)
-    {
         for (auto& c : t.clips)
         {
             auto* cc = new ClipComponent(c, fm, cache, bpmValue,
-    [this]{ extendContentToMaxClip(); if(onProjectChanged) onProjectChanged(); });
+                [this]{ extendContentToMaxClip(); if(onProjectChanged) onProjectChanged(); });
 
             cc->addMouseListener(this, true);
             cc->setSelected(selectedClip == &c);
@@ -336,14 +377,17 @@ void Arranger::refreshAll()
             clipComps.emplace_back(cc);
             clipComps.back()->setActiveTool(tool);
         }
-    }
 
+    // keep overlay & plus button on top
     content.addAndMakeVisible(canvas);
-    canvas.toBack();
+    content.addAndMakeVisible(plusButton);
+    canvas.toFront(false);      // grid above lanes/clips
+    plusButton.toFront(true);   // button above grid
 
     layoutLanes();
     layoutClips();
-    extendContentToMaxClip();
+    extendContentToMaxClip();   // width only
+    canvas.repaint();
     repaint();
 }
 
@@ -363,35 +407,49 @@ void Arranger::setSelectedLane(int idx)
 
 int Arranger::laneIndexFromY(int yInContent) const
 {
-    const int rulerH = 20;
+    const int rulerH = laneTop();
     int y = yInContent - rulerH;
     int laneH = laneHeight();
-    if (y < laneTop()) return 0;
-    int idx = (y - laneTop()) / laneH;
+    if (y < 0) return 0;
+    int idx = (y) / laneH;
     if (tracks.empty()) return 0;
     return juce::jlimit(0, (int)tracks.size()-1, idx);
 }
 int Arranger::laneIndexFromYAllowNew(int yInContent) const
 {
-    const int rulerH = 20;
+    const int rulerH = laneTop();
     int y = yInContent - rulerH;
     int laneH = laneHeight();
-    if (y < laneTop()) return 0;
+    if (y < 0) return 0;
     if (tracks.empty()) return 0;
-    const int idx = (y - laneTop()) / laneH;
+    const int idx = (y) / laneH;
     return juce::jlimit(0, (int)tracks.size(), idx);
 }
 
 void Arranger::layoutLanes()
 {
-    canvas.setBounds(0, 0, juce::jmax(2000, content.getWidth()), juce::jmax(600, content.getHeight()));
-
+    const int w = juce::jmax(content.getWidth(), view.getWidth()); // don't reduce width here
     int y = laneTop();
-    int w = juce::jmax(2000, getWidth());
 
-    for (auto& lc : laneComps) { lc->setBounds(0, y, w, laneHeight()); y += laneHeight(); }
+    for (auto& lc : laneComps)
+    {
+        lc->setBounds(0, y, w, laneHeight());
+        y += laneHeight();
+    }
 
-    content.setSize(juce::jmax(w, getWidth()*2), juce::jmax(y+120, getHeight()*2));
+    // "+" 6px under the last lane, centered in header column
+    const int btnW = 28, btnH = 28;
+    const int xBtn = juce::jmax(4, (TrackLaneComponent::headerWidth - btnW) / 2);
+    const int yBtn = laneTop() + (int)tracks.size() * laneHeight() + 6;
+    plusButton.setBounds(xBtn, yBtn, btnW, btnH);
+
+    // height only; width handled elsewhere
+    content.setSize(w, contentHeight());
+
+    // overlay covers everything and draws on top
+    canvas.setBounds(0, 0, content.getWidth(), content.getHeight());
+    canvas.toFront(false);
+    plusButton.toFront(true);
 }
 
 void Arranger::layoutClips()
@@ -427,9 +485,15 @@ void Arranger::extendContentToMaxClip()
         for (auto& c : t.clips)
             maxEndBeats = std::max(maxEndBeats, c.startBeats + c.lengthBeats);
 
-    const int neededW = TrackLaneComponent::headerWidth + (int)std::ceil(maxEndBeats * pixelsPerBeat) + 400;
-    content.setSize(juce::jmax(neededW, content.getWidth()), content.getHeight());
+    const int neededW = TrackLaneComponent::headerWidth
+                      + (int)std::ceil(maxEndBeats * pixelsPerBeat) + 400;
+
+    content.setSize(juce::jmax(neededW, content.getWidth()),
+                    content.getHeight());
+
     canvas.setBounds(0, 0, content.getWidth(), content.getHeight());
+    canvas.toFront(false);
+    plusButton.toFront(true);
     repaint();
 }
 
@@ -456,7 +520,7 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
     {
         zoomDragActive = true;
         zoomDragStartXContent = e.getEventRelativeTo(&content).x;
-        zoomDelta(rightClick ? -1 : +1, zoomDragStartXContent);
+        zoomDelta(rightClick ? -1 : +1); // anchor at playhead, not cursor
         return;
     }
 
@@ -530,7 +594,7 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
         if (std::abs(dx) > 1)
         {
             const double steps = (double)dx / 24.0;
-            zoomDelta(rightClick ? -steps : +steps, xContent);
+            zoomDelta(rightClick ? -steps : +steps); // anchor at playhead
             zoomDragStartXContent = xContent;
         }
         return;
@@ -760,7 +824,7 @@ void Arranger::performSliceAtBeat(ClipComponent& cc, double beat)
                 right.file        = it->file;
                 right.startBeats  = beat;
                 right.lengthBeats = rightLen;
-                right.offsetBeats = it->offsetBeats + (beat - it->startBeats); // audible offset preserved
+                right.offsetBeats = it->offsetBeats + (beat - it->startBeats);
 
                 t.clips.insert(it + 1, std::move(right));
 

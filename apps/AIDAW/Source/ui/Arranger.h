@@ -40,20 +40,21 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
 
-    // zoom helpers
-    void zoomDelta(double delta, int centerXInContent = -1);
+    // zoom helpers (steps can be +/-1 from buttons or fractional from drag)
+    void zoomDelta(double steps);
     void zoomDeltaFromWheel(double wheelDelta, int centerXInScreen);
     void frameAll();
 
 private:
-    // content
+    // content layer inside the viewport
     class ContentComp : public juce::Component
     {
         void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xFF0A0A0A)); }
     } content;
 
-    juce::Viewport view;
-    ArrangerCanvas canvas;
+    juce::Viewport  view;
+    ArrangerCanvas  canvas;                // overlay grid/ruler/playhead (on top)
+    juce::TextButton plusButton { "+" };   // add-track button (sibling to lanes)
 
     // tools
     juce::TextButton btnPointer, btnSlice, btnResize, btnZoomTool, btnFrameAll, btnSnap, btnZoomIn, btnZoomOut;
@@ -103,6 +104,29 @@ private:
     // undo/redo
     std::vector<std::vector<TrackModel>> undoStack, redoStack;
 
+    // ---- layout helpers ----
+    static constexpr int kDefaultTrackCount = 8;
+    static constexpr double kZoomBase = 1.12;   // smooth exponential zoom
+    static constexpr double kMinZoom  = 0.05;   // wide view
+    static constexpr double kMaxZoom  = 24.0;   // get really close
+
+    int  laneTop()     const { return 20; }     // ruler height
+    int  laneHeight()  const { return 76; }     // single source of truth
+    int  contentHeight() const
+    {
+        const int n = (int) tracks.size();
+        const int lanesH = n * laneHeight();
+        const int plusH  = 28;
+        const int pad    = 40;
+        return laneTop() + lanesH + 6 + plusH + pad;
+    }
+
+    void ensureDefaultTracks(int n);
+
+    void layoutLanes();     // places lanes + plusButton, resizes content height (only height)
+    void layoutClips();
+    void extendContentToMaxClip(); // computes content width (only width)
+
     // internals
     void pushUndo();
     void undo();
@@ -115,12 +139,6 @@ private:
     void setSelectedLane(int idx);
     int  laneIndexFromY(int yInContent) const;
     int  laneIndexFromYAllowNew(int yInContent) const;
-    int  laneTop() const    { return 20; }
-    int  laneHeight() const { return 76; }
-
-    void layoutLanes();
-    void layoutClips();
-    void extendContentToMaxClip();
 
     // mouse routing
     void mouseDown(const juce::MouseEvent&) override;
