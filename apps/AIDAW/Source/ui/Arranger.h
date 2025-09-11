@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include <functional>
 #include <memory>
+#include <optional>
 #include "Models.h"
 #include "ClipComponent.h"
 #include "TrackLaneComponent.h"
@@ -29,6 +30,12 @@ public:
     void setPlayheadBeats(double beats);
     double getPlayheadBeats() const;
 
+    // zoom helpers / limits
+    void setZoomLimits(double minPPB, double maxPPB);
+    void zoomDelta(double steps);                       // fallback (viewport center)
+    void zoomDeltaFromWheel(double wheelDelta, int screenX);  // anchor at mouse X (screen)
+    void frameAll();
+
     // model
     std::vector<TrackModel> tracks;
 
@@ -40,11 +47,6 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
 
-    // zoom helpers (steps can be +/-1 from buttons or fractional from drag)
-    void zoomDelta(double steps);
-    void zoomDeltaFromWheel(double wheelDelta, int centerXInScreen);
-    void frameAll();
-
 private:
     // content layer inside the viewport
     class ContentComp : public juce::Component
@@ -53,7 +55,7 @@ private:
     } content;
 
     juce::Viewport  view;
-    ArrangerCanvas  canvas;                // overlay grid/ruler/playhead (on top)
+    ArrangerCanvas  canvas;                // overlay grid/ruler/playhead/selection (on top)
     juce::TextButton plusButton { "+" };   // add-track button (sibling to lanes)
 
     // tools
@@ -67,6 +69,10 @@ private:
     double ppbAt120 { 52.0 };
     double pixelsPerBeat { 52.0 };
     double zoomScale { 1.0 };
+
+    // enforced zoom limits to avoid “clipping” at extreme zooms
+    double minPixelsPerBeat { 8.0 };       // far view
+    double maxPixelsPerBeat { 1024.0 };    // close view for vocal editing
 
     // playhead
     double playheadBeats { 0.0 };
@@ -91,12 +97,20 @@ private:
     int startLaneIndex { -1 }, targetLaneIndex { -1 };
 
     // zoom + pan + playhead drag
-    bool zoomDragActive { false };
-    int  zoomDragStartXContent { -1 };
     bool panActive { false };
     juce::Point<int> panStartMouse;
     juce::Point<int> panStartView;
     bool playheadDragActive { false };
+
+    // Zoom tool: marquee selection & view restore
+    bool selectionActive { false };
+    juce::Point<int> selectionStartContent { 0, 0 };
+    juce::Rectangle<int> selectionRectContent { 0, 0, 0, 0 };
+    int   clickZoomStage { 0 }; // 0=none, 1=x1, 2=x2
+
+    struct ViewState { double ppb; double scale; int vx; int vy; };
+    std::optional<ViewState> preZoomView;          // saved on first zoom action
+    bool rightClickRestoreArm { false };           // arm restore on RMB press/release
 
     // lane reorder
     int draggingLaneIndex { -1 };
@@ -107,8 +121,8 @@ private:
     // ---- layout helpers ----
     static constexpr int kDefaultTrackCount = 8;
     static constexpr double kZoomBase = 1.12;   // smooth exponential zoom
-    static constexpr double kMinZoom  = 0.05;   // wide view
-    static constexpr double kMaxZoom  = 24.0;   // get really close
+    static constexpr double kMinZoom  = 0.05;   // legacy safety (unused when ppb clamped)
+    static constexpr double kMaxZoom  = 24.0;   // legacy safety (unused when ppb clamped)
 
     int  laneTop()     const { return 20; }     // ruler height
     int  laneHeight()  const { return 76; }     // single source of truth
@@ -144,10 +158,17 @@ private:
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp  (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+    // zoom impl
+    void zoomAtViewportCenter(double steps);
+    void applyZoomAtContentX(double steps, int anchorXContent);
+    void zoomToSelectionAndCenter(const juce::Rectangle<int>& rectContent);
+    void restorePreZoomView();
 
     // model helpers
     int  trackIndexForClip(ClipModel& cm);
-    void moveClipToLane(ClipModel& cm, int fromLane, int toLane);
+    void moveClipToLane(ClipModel* cm, int fromLane, int toLane);
     void removeClip(ClipModel* clip);
     void addTrack(const juce::String& name = "Audio", bool push = true);
     void duplicateTrack(size_t idx);

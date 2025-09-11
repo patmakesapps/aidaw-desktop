@@ -7,10 +7,6 @@
 
 /* ============================================================
    TimelineAudioSource
-   - Plays clips at start/length in beats
-   - Uses offsetBeats so left-trims are audible
-   - Exposes get/set playhead in beats
-   - Produces SILENCE while paused (no stuck-buffer audio)
    ============================================================ */
 class TimelineAudioSource : public juce::AudioSource
 {
@@ -22,7 +18,6 @@ public:
     void resetToStart()           { playheadSamples.store(0); }
     void requestRebuild()         { needsRebuild.store(true); }
 
-    // Playhead <-> beats API
     double getPlayheadBeats() const
     {
         if (deviceSampleRate <= 0.0 || bpmRef <= 0.0) return 0.0;
@@ -43,7 +38,6 @@ public:
     {
         deviceSampleRate = sampleRateIn;
         buildReaders();
-        // apply any pending seek requested before audio device opened
         if (pendingSeekBeats.load() > 0.0)
         {
             setPlayheadBeats(pendingSeekBeats.load());
@@ -67,7 +61,6 @@ public:
         if (deviceSampleRate <= 0.0)
             return;
 
-        // produce silence while paused
         if (!playing.load())
             return;
 
@@ -248,7 +241,6 @@ public:
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
 
-        // Tooltip manager (fixes emoji glyphs on Windows when combined with LookAndFeel font set in App)
         (void)tooltip;
 
         mixer.addInputSource(&metronome, false);
@@ -359,11 +351,12 @@ public:
         return false;
     }
 
+    // Ctrl + wheel = horizontal zoom at the mouse position (anywhere in window)
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
         if (e.mods.isCtrlDown())
         {
-            arranger.zoomDelta(wheel.deltaY);
+            arranger.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
             return;
         }
         juce::Component::mouseWheelMove(e, wheel);

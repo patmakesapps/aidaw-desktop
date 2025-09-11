@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <optional>
 #include "Models.h"
 #include "TrackLaneComponent.h"
 
@@ -18,6 +19,13 @@ public:
     int    xFromBeats(double beats) const;
     double beatsFromX(int x) const;
 
+    // Allow Arranger to show/hide the marquee (content coords)
+    void setSelectionRect(std::optional<juce::Rectangle<int>> r)
+    {
+        selectionRect = std::move(r);
+        repaint();
+    }
+
 private:
     std::vector<TrackModel>& tracks;
     double& bpmRef;
@@ -25,6 +33,8 @@ private:
     double& pixelsPerBeatRef;
     double& playheadBeatsRef;
     std::function<void()> notifyChanged;
+
+    std::optional<juce::Rectangle<int>> selectionRect;
 
     static constexpr int rulerH = 20;
 };
