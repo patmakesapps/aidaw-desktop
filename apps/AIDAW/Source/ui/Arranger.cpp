@@ -4,7 +4,7 @@
 
 Arranger::Arranger()
     : canvas(tracks, bpmValue, snapToGrid, pixelsPerBeat, playheadBeats,
-             [this]{ if(onProjectChanged) onProjectChanged(); })
+             [this]{ if (onProjectChanged) onProjectChanged(); })
 {
     setWantsKeyboardFocus(true);
     fm.registerBasicFormats();
@@ -24,24 +24,30 @@ Arranger::Arranger()
     btnFrameAll.setTooltip("Frame all (F)");
     btnSnap.setTooltip   ("Snap to grid (G)");
 
-    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool }) b->setClickingTogglesState(true);
+    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool })
+        b->setClickingTogglesState(true);
     btnSnap.setClickingTogglesState(true);
     btnSnap.setToggleState(true, juce::dontSendNotification);
 
-    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut })
+    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool,
+                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut })
     { b->addListener(this); addAndMakeVisible(b); }
 
     btnZoomIn.setButtonText("+"); btnZoomOut.setButtonText("-");
     btnZoomIn.setTooltip("Zoom in (+)"); btnZoomOut.setTooltip("Zoom out (-)");
 
     setTool(ArrangerTool::Pointer);
+    
+// Viewport + content
+addAndMakeVisible(view);
+view.setViewedComponent(&content, false);
+content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
+content.addAndMakeVisible(plusButton);   // add-track button
+canvas.setInterceptsMouseClicks(false, false);
 
-    // Viewport + content
-    addAndMakeVisible(view);
-    view.setViewedComponent(&content, false);
-    content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
-    content.addAndMakeVisible(plusButton);   // add-track button
-    canvas.setInterceptsMouseClicks(false, false);
+// Route background (empty grid) clicks to Arranger, too
+content.addMouseListener(this, true);
+
 
     // "+" button wiring
     plusButton.setTooltip("Add track");
@@ -71,7 +77,8 @@ Arranger::Arranger()
 
 Arranger::~Arranger()
 {
-    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut })
+    for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool,
+                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut })
         b->removeListener(this);
 }
 
@@ -101,7 +108,10 @@ void Arranger::setBPM(double bpm)
 void Arranger::setPlayheadBeats(double beats) { playheadBeats = juce::jmax(0.0, beats); canvas.repaint(); }
 double Arranger::getPlayheadBeats() const     { return playheadBeats; }
 
-void Arranger::setSnap(bool on){ snapToGrid = on; btnSnap.setToggleState(on, juce::dontSendNotification); repaint(); }
+void Arranger::setSnap(bool on)
+{
+    snapToGrid = on; btnSnap.setToggleState(on, juce::dontSendNotification); repaint();
+}
 
 void Arranger::setTool(ArrangerTool t)
 {
@@ -280,10 +290,7 @@ void Arranger::setZoomLimits(double minPPB, double maxPPB)
     zoomScale     = pixelsPerBeat / (ppbAt120 * (120.0 / bpmValue));
 }
 
-void Arranger::zoomDelta(double steps)
-{
-    zoomAtViewportCenter(steps);
-}
+void Arranger::zoomDelta(double steps) { zoomAtViewportCenter(steps); }
 
 void Arranger::zoomDeltaFromWheel(double wheelDelta, int screenX)
 {
@@ -469,7 +476,7 @@ void Arranger::refreshAll()
         for (auto& c : t.clips)
         {
             auto* cc = new ClipComponent(c, fm, cache, bpmValue,
-                [this]{ extendContentToMaxClip(); if(onProjectChanged) onProjectChanged(); });
+                [this]{ extendContentToMaxClip(); if (onProjectChanged) onProjectChanged(); });
 
             cc->addMouseListener(this, true);
             cc->setSelected(selectedClip == &c);
@@ -515,6 +522,7 @@ int Arranger::laneIndexFromY(int yInContent) const
     if (tracks.empty()) return 0;
     return juce::jlimit(0, (int)tracks.size()-1, idx);
 }
+
 int Arranger::laneIndexFromYAllowNew(int yInContent) const
 {
     const int rulerH = laneTop();
@@ -582,7 +590,6 @@ void Arranger::layoutClips()
         }
         if (!cm || !track) continue;
 
-        // Use the pointer (->) now that cm is a ClipModel*
         const int x = canvas.xFromBeats(cm->startBeats);
         const int w = (int) std::round(cm->lengthBeats * pixelsPerBeat);
         const int y = yForTrack(track);
@@ -590,7 +597,6 @@ void Arranger::layoutClips()
         cc.setBounds(x, y + 10, juce::jmax(24, w), laneH - 20);
     }
 }
-
 
 void Arranger::extendContentToMaxClip()
 {
@@ -702,7 +708,20 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
     }
     else
     {
-        selectedClip = nullptr; updateClipSelectionVisuals();
+        // Empty area: arm quick-paste ONLY when we are in lanes and using Pointer tool
+        const bool inLanes = (yContent >= laneTop());
+        if (tool == ArrangerTool::Pointer && inLanes)
+        {
+            pasteArm = true; // we'll handle paste on mouseUp if it was just a click
+            // keep selection so we know which clip to copy
+        }
+        else
+        {
+            // other areas/tools: clear selection and disarm paste
+            selectedClip = nullptr;
+            updateClipSelectionVisuals();
+            pasteArm = false;
+        }
     }
 }
 
@@ -798,6 +817,7 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
     panActive = false;
     playheadDragActive = false;
 
+    // --- Zoom tool completion / restore
     if (tool == ArrangerTool::Zoom)
     {
         if (rightClickRestoreArm && wasRight)
@@ -821,7 +841,6 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
                 const double stepFactor = 2.0;
                 if (clickZoomStage < 2)
                 {
-                    // Anchor zoom at click X
                     const int contentW = juce::jmax(content.getWidth(), view.getWidth());
                     const int ax = juce::jlimit(TrackLaneComponent::headerWidth, contentW - 1, xContent);
 
@@ -842,56 +861,81 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
                     const int maxX = juce::jmax(0, content.getWidth() - view.getWidth());
                     view.setViewPosition(juce::jlimit(0, maxX, p.getX() + dx), p.getY());
 
-                    ++clickZoomStage; // advance stage (max 2)
+                    ++clickZoomStage;
                     canvas.repaint(); repaint();
                 }
             }
             else
             {
-                // Zoom to marquee
-                clickZoomStage = 1; // treat as first zoom level
+                clickZoomStage = 1;
                 zoomToSelectionAndCenter(rect);
             }
             return;
         }
     }
-// --- duplicate-on-click (selected + simple left click) ---
-if (activeClip && tool == ArrangerTool::Pointer)
-{
-    const auto upPos = e.getEventRelativeTo(&content).getPosition();
-    const bool tinyMovement = (std::abs(upPos.x - dragStartPos.x) < 3 && std::abs(upPos.y - dragStartPos.y) < 3);
-    const bool leftClick    = e.mods.testFlags(juce::ModifierKeys::leftButtonModifier);
 
-    if (tinyMovement && leftClick && selectedClip == &activeClip->model)
+    // --- Left-click quick paste on grid (requires an already selected clip)
+    if (tool != ArrangerTool::Zoom && pasteArm && selectedClip != nullptr)
     {
-        // duplicate in-place to the right
-        ClipModel copy = activeClip->model;
-        copy.id = juce::Uuid().toString();
-        copy.startBeats = activeClip->model.startBeats + activeClip->model.lengthBeats;
-
-        // insert into same lane
-        const int laneIdx = trackIndexForClip(activeClip->model);
-        if (laneIdx >= 0 && laneIdx < (int)tracks.size())
+        // only treat as a click (not a drag)
+        if (!e.mouseWasDraggedSinceMouseDown())
         {
-            auto& lane = tracks[(size_t)laneIdx];
-            lane.clips.push_back(std::move(copy));
-            refreshAll();
-            if (onProjectChanged) onProjectChanged();
+            const auto pos = e.getEventRelativeTo(&content).getPosition();
+
+            // Only paste inside lanes (not the ruler/header)
+            if (pos.y >= laneTop())
+            {
+                if (tracks.empty())
+                    addTrack("Audio 1"); // ensure at least one lane
+
+                pushUndo();
+
+                ClipModel copy = *selectedClip;
+                copy.id = juce::Uuid().toString();
+
+                double beat = canvas.beatsFromX(pos.x);
+                if (snapToGrid) beat = std::round(beat);
+                copy.startBeats = juce::jmax(0.0, beat);
+
+                // Paste to lane under cursor; allow creating a new lane if clicked below the last
+                int laneIdx = laneIndexFromYAllowNew(pos.y);
+                if (laneIdx == (int)tracks.size())
+                    addTrack("Audio " + juce::String((int)tracks.size() + 1));
+                laneIdx = juce::jlimit(0, (int)tracks.size() - 1, laneIdx);
+
+                auto& lane = tracks[(size_t)laneIdx];
+                lane.clips.push_back(std::move(copy));
+
+                // Select the new copy
+                selectedClip = &lane.clips.back();
+                refreshAll();
+                if (onProjectChanged) onProjectChanged();
+
+                // reset/finish
+                activeClip = nullptr;
+                dragging = DragMode::None;
+                startLaneIndex = targetLaneIndex = -1;
+                layoutClips();
+                pasteArm = false;
+                return;
+            }
         }
     }
-}
+    // reset paste arm if we didn’t paste
+    pasteArm = false;
 
+    // --- End of drag/move handling
     if (activeClip)
     {
         if (dragging == DragMode::Move && targetLaneIndex >= 0)
         {
             if (targetLaneIndex == (int)tracks.size())
-                addTrack("Audio " + juce::String((int)tracks.size()+1));
+                addTrack("Audio " + juce::String((int)tracks.size() + 1));
 
             if (targetLaneIndex != startLaneIndex && selectedClip)
                 moveClipToLane(selectedClip, startLaneIndex, targetLaneIndex);
 
-            setSelectedLane(juce::jmin(targetLaneIndex, (int)tracks.size()-1));
+            setSelectedLane(juce::jmin(targetLaneIndex, (int)tracks.size() - 1));
         }
     }
 

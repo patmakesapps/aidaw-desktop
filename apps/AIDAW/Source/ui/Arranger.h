@@ -95,6 +95,8 @@ private:
     juce::Point<int> dragStartPos;
     double clipStartBeatsAtDown { 0.0 }, clipLenBeatsAtDown { 0.0 }, clipOffsetBeatsAtDown { 0.0 };
     int startLaneIndex { -1 }, targetLaneIndex { -1 };
+    
+bool pasteArm = false; // arm quick-paste when clicking empty lanes
 
     // zoom + pan + playhead drag
     bool panActive { false };
