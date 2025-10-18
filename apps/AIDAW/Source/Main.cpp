@@ -4,6 +4,7 @@
 
 #include "ui/TopBar.h"
 #include "ui/Arranger.h"
+#include "ui/MidiEditor.h"
 
 /* ============================================================
    TimelineAudioSource
@@ -58,10 +59,7 @@ public:
     {
         info.clearActiveBufferRegion();
 
-        if (deviceSampleRate <= 0.0)
-            return;
-
-        if (!playing.load())
+        if (deviceSampleRate <= 0.0 || !playing.load())
             return;
 
         if (needsRebuild.exchange(false))
@@ -240,8 +238,8 @@ public:
 
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
-
-        (void)tooltip;
+        addChildComponent(midi);        // start hidden
+        addChildComponent(mixerView);   // start hidden
 
         mixer.addInputSource(&metronome, false);
         mixer.addInputSource(&timeline,  false);
@@ -284,12 +282,37 @@ public:
             currentBpm = bpm;
             metronome.setBpm(bpm);
             arranger.setBPM(bpm);
+            midi.setBPM(bpm);
         };
 
         topBar.onClickToggled = [this](bool on)
         {
             metronome.setClickEnabled(on);
             arranger.setSnap(on);
+        };
+
+        topBar.onModeChanged = [this](TopBar::AppMode m)
+        {
+            switch (m)
+            {
+                case TopBar::AppMode::Composer:
+                    arranger.setVisible(true);
+                    midi.setVisible(false);
+                    mixerView.setVisible(false);
+                    break;
+                case TopBar::AppMode::Midi:
+                    arranger.setVisible(false);
+                    midi.setVisible(true);
+                    mixerView.setVisible(false);
+                    break;
+                case TopBar::AppMode::Mixer:
+                    arranger.setVisible(false);
+                    midi.setVisible(false);
+                    mixerView.setVisible(true);
+                    break;
+            }
+            resized();
+            repaint();
         };
 
         topBar.onMinimize = [this]()
@@ -323,7 +346,11 @@ public:
     {
         auto area = getLocalBounds();
         topBar.setBounds(area.removeFromTop(56));
-        arranger.setBounds(area.reduced(8, 8));
+        auto content = area.reduced(8, 8);
+
+        arranger.setBounds(content);
+        midi.setBounds(content);
+        mixerView.setBounds(content);
     }
 
     bool keyPressed (const juce::KeyPress& key) override
@@ -351,12 +378,15 @@ public:
         return false;
     }
 
-    // Ctrl + wheel = horizontal zoom at the mouse position (anywhere in window)
+    // Ctrl + wheel = horizontal zoom at the mouse position
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
         if (e.mods.isCtrlDown())
         {
-            arranger.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
+            if (arranger.isVisible())
+                arranger.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
+            else if (midi.isVisible())
+                midi.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
             return;
         }
         juce::Component::mouseWheelMove(e, wheel);
@@ -369,8 +399,22 @@ private:
         arranger.setPlayheadBeats(timeline.getPlayheadBeats());
     }
 
+    // Simple placeholder mixer view (kept minimal)
+    class MixerPlaceholder : public juce::Component
+    {
+        void paint(juce::Graphics& g) override
+        {
+            g.fillAll(juce::Colour(0xFF0B0E12));
+            g.setColour(juce::Colour(0x66FFFFFF));
+            g.setFont(18.0f);
+            g.drawFittedText("Mixer (placeholder)", getLocalBounds(), juce::Justification::centred, 1);
+        }
+    };
+
     TopBar topBar;
     Arranger arranger;
+    MidiEditor midi;
+    MixerPlaceholder mixerView;
 
     juce::MixerAudioSource& mixer;
     MetronomeSource&        metronome;
@@ -379,8 +423,6 @@ private:
     bool   playing     { false };
     bool   recordArmed { false };
     double currentBpm  { 120.0 };
-
-    juce::TooltipWindow tooltip { this, 350 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
@@ -430,7 +472,6 @@ public:
     void initialise (const juce::String&) override
     {
        #if JUCE_WINDOWS
-        // Fixes emoji/glyph toolbuttons on Windows (avoids mojibake in tooltips)
         juce::LookAndFeel::getDefaultLookAndFeel()
             .setDefaultSansSerifTypefaceName("Segoe UI Emoji");
        #endif

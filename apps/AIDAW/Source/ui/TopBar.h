@@ -31,25 +31,6 @@ public:
         g.setColour(bg); g.fillRoundedRectangle(r, 10.0f);
         g.setColour(juce::Colour(0x22FFFFFF)); g.drawRoundedRectangle(r.reduced(0.5f), 10.0f, 1.0f);
     }
-
-    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& b,
-                          bool hi, bool down) override
-    {
-        auto r = b.getLocalBounds().toFloat();
-        const bool on = b.getToggleState();
-
-        auto base = on ? juce::Colour(0xFF22C55E) : juce::Colour(0xFF2A2A2A);
-        if (hi)   base = base.brighter(0.1f);
-        if (down) base = base.darker(0.2f);
-
-        g.setColour(base); g.fillRoundedRectangle(r, 12.0f);
-        g.setColour(on ? juce::Colour(0xFF0F5D2E) : juce::Colour(0x22FFFFFF));
-        g.drawRoundedRectangle(r.reduced(0.5f), 12.0f, 1.0f);
-
-        g.setColour(on ? juce::Colours::black : juce::Colours::white);
-        g.setFont(juce::Font(14.0f));
-        g.drawFittedText(b.getButtonText(), b.getLocalBounds(), juce::Justification::centred, 1);
-    }
 };
 
 // ---------- Top Bar ----------
@@ -58,6 +39,8 @@ class TopBar : public juce::Component,
                private juce::TextEditor::Listener
 {
 public:
+    enum class AppMode { Composer, Midi, Mixer };
+
     TopBar()
     {
         setLookAndFeel(&look);
@@ -77,6 +60,18 @@ public:
         record.addListener(this);
         record.setTooltip("Arm recording");
         addAndMakeVisible(record);
+
+        // Mode buttons
+        modeComposer.setButtonText("Composer");
+        modeMidi.setButtonText("MIDI Editor");
+        modeMixer.setButtonText("Mixer");
+        for (auto* b : { &modeComposer, &modeMidi, &modeMixer })
+        {
+            b->setClickingTogglesState(true);
+            b->addListener(this);
+            addAndMakeVisible(b);
+        }
+        setMode(AppMode::Composer, false);
 
         // Title
         title.setText("AIDAW", juce::dontSendNotification);
@@ -132,6 +127,7 @@ public:
     std::function<void()>       onMinimize;
     std::function<void()>       onClose;
     std::function<void(const juce::String&)> onTitleChanged;
+    std::function<void(AppMode)> onModeChanged;
 
     // State
     void setPlaying(bool shouldPlay)
@@ -167,6 +163,18 @@ public:
         clickToggle.setToggleState(clickEnabled, juce::dontSendNotification);
     }
 
+    void setMode(AppMode m, bool fireCallback = true)
+    {
+        currentMode = m;
+        modeComposer.setToggleState(m == AppMode::Composer, juce::dontSendNotification);
+        modeMidi.setToggleState(m == AppMode::Midi, juce::dontSendNotification);
+        modeMixer.setToggleState(m == AppMode::Mixer, juce::dontSendNotification);
+        if (fireCallback && onModeChanged) onModeChanged(m);
+        repaint();
+    }
+
+    AppMode getMode() const { return currentMode; }
+
     void paint(juce::Graphics& g) override
     {
         juce::Colour top  = juce::Colour(0xFF0E0E0E);
@@ -191,51 +199,70 @@ public:
         const int vpad      = 8;
         const int gap       = 8;
         const int btnH      = 32;
-        const int transW    = 84;
-        const int winBtnW   = 48;
 
+        // Buttons: enforce same width for all 6 (fits long “MIDI Editor” label).
+        const int buttonW   = 126;        // <= tweak if you want tighter fit
+        const int clusterGap= 24;         // visual spacer between transport and modes
+
+        const int winBtnW   = 48;
         const int pillW     = 320;
         const int clickW    = 76;
 
         auto r = getLocalBounds().reduced(sidePad, vpad);
 
+        // Window controls (far right)
         auto win = r.removeFromRight(winBtnW * 2 + gap);
         btnClose.setBounds(win.removeFromRight(winBtnW).reduced(4));
         win.removeFromRight(gap);
         btnMin.setBounds(win.removeFromRight(winBtnW).reduced(4));
 
-        const int transportW = transW * 3 + gap * 2;
-        auto left = r.removeFromLeft(transportW);
-        playPause.setBounds(left.removeFromLeft(transW).withHeight(btnH));
-        left.removeFromLeft(gap);
-        stop.setBounds(left.removeFromLeft(transW).withHeight(btnH));
-        left.removeFromLeft(gap);
-        record.setBounds(left.removeFromLeft(transW).withHeight(btnH));
-
+        // Right-side BPM + click
         r.removeFromRight(12);
         auto pillBlock = r.removeFromRight(pillW + gap + clickW);
         bpmPillBounds  = pillBlock.removeFromLeft(pillW);
 
-        const int titleW = 200, titleH = btnH;
-        const int cx     = getWidth() / 2;
-        title.setBounds(cx - titleW/2, vpad, titleW, titleH);
-
         auto inside = bpmPillBounds.reduced(12, 8);
         int totalW = inside.getWidth();
-        int btnW   = 28;
-        int labelW = 42;
-        int editW  = totalW - (btnW * 2 + labelW * 2 + 16);
+        int smallBtnW = 28;
+        int labelW  = 42;
+        int editW   = totalW - (smallBtnW * 2 + labelW * 2 + 16);
 
         bpmLabelLeft.setBounds(inside.removeFromLeft(labelW));
-        minusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
+        minusBtn.setBounds(inside.removeFromLeft(smallBtnW).reduced(2, 2));
         inside.removeFromLeft(4);
         bpmEdit.setBounds(inside.removeFromLeft(editW).reduced(2, 0));
         inside.removeFromLeft(4);
         bpmLabelRight.setBounds(inside.removeFromLeft(labelW));
-        plusBtn.setBounds(inside.removeFromLeft(btnW).reduced(2, 2));
+        plusBtn.setBounds(inside.removeFromLeft(smallBtnW).reduced(2, 2));
 
         pillBlock.removeFromLeft(gap);
         clickToggle.setBounds(pillBlock.removeFromLeft(clickW));
+
+        // Left side: transport + spacer + modes, each with identical size
+        // Transport cluster
+        auto leftCluster = r.removeFromLeft(buttonW * 3 + gap * 2 + clusterGap + buttonW * 3 + gap * 2);
+        auto transport = leftCluster.removeFromLeft(buttonW * 3 + gap * 2);
+        playPause.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
+        transport.removeFromLeft(gap);
+        stop.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
+        transport.removeFromLeft(gap);
+        record.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
+
+        // Spacer between clusters
+        leftCluster.removeFromLeft(clusterGap);
+
+        // Modes cluster
+        auto modes = leftCluster.removeFromLeft(buttonW * 3 + gap * 2);
+        modeComposer.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
+        modes.removeFromLeft(gap);
+        modeMidi.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
+        modes.removeFromLeft(gap);
+        modeMixer.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
+
+        // Title centered (independent of clusters)
+        const int titleW = 200, titleH = btnH;
+        const int cx     = getWidth() / 2;
+        title.setBounds(cx - titleW/2, vpad, titleW, titleH);
     }
 
 private:
@@ -267,6 +294,9 @@ private:
         else if (b == &plusBtn)  { setBPM(currentBPM + 1.0); }
         else if (b == &btnMin)   { if (onMinimize) onMinimize(); }
         else if (b == &btnClose) { if (onClose) onClose(); }
+        else if (b == &modeComposer) setMode(AppMode::Composer);
+        else if (b == &modeMidi)     setMode(AppMode::Midi);
+        else if (b == &modeMixer)    setMode(AppMode::Mixer);
     }
 
     void textEditorReturnKeyPressed(juce::TextEditor& te) override { applyBpmFrom(te); }
@@ -284,6 +314,7 @@ private:
     AIDAWLook        look;
 
     juce::TextButton playPause, stop, record;
+    juce::TextButton modeComposer, modeMidi, modeMixer;
     juce::Label      title;
 
     juce::Rectangle<int> bpmPillBounds;
@@ -298,6 +329,7 @@ private:
     bool   recordArmed  { false };
     double currentBPM   { 120.0 };
     bool   clickEnabled { true };
+    AppMode currentMode { AppMode::Composer };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TopBar)
 };
