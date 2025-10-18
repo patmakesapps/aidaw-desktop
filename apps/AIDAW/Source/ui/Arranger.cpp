@@ -37,17 +37,16 @@ Arranger::Arranger()
     btnZoomIn.setTooltip("Zoom in (+)"); btnZoomOut.setTooltip("Zoom out (-)");
 
     setTool(ArrangerTool::Pointer);
-    
-// Viewport + content
-addAndMakeVisible(view);
-view.setViewedComponent(&content, false);
-content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
-content.addAndMakeVisible(plusButton);   // add-track button
-canvas.setInterceptsMouseClicks(false, false);
 
-// Route background (empty grid) clicks to Arranger, too
-content.addMouseListener(this, true);
+    // Viewport + content
+    addAndMakeVisible(view);
+    view.setViewedComponent(&content, false);
+    content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
+    content.addAndMakeVisible(plusButton);   // add-track button
+    canvas.setInterceptsMouseClicks(false, false);
 
+    // Route background (empty grid) clicks to Arranger, too
+    content.addMouseListener(this, true);
 
     // "+" button wiring
     plusButton.setTooltip("Add track");
@@ -295,7 +294,6 @@ void Arranger::zoomDelta(double steps) { zoomAtViewportCenter(steps); }
 void Arranger::zoomDeltaFromWheel(double wheelDelta, int screenX)
 {
     // Convert anchor X from screen to content coordinates
-    const int localX  = getMouseXYRelative().getX(); // fallback if mapping fails
     const auto anchor = juce::Desktop::getInstance().getMainMouseSource().getScreenPosition();
     int anchorX = view.getViewPositionX() + (int)std::round(anchor.x - getScreenX());
     if (std::abs((int)anchor.x - screenX) > 2) // if a screenX was provided, prefer it
@@ -590,6 +588,15 @@ void Arranger::layoutClips()
         }
         if (!cm || !track) continue;
 
+        // --- NEW: while moving a clip, don't stomp the live preview bounds ---
+if (activeClip && (&(*ccUP) == activeClip) && dragging == DragMode::Move && pendingMoveValid)
+{
+    // Skip positioning this one; the drag preview already set its bounds.
+    continue;
+}
+// ---------------------------------------------------------------------
+
+
         const int x = canvas.xFromBeats(cm->startBeats);
         const int w = (int) std::round(cm->lengthBeats * pixelsPerBeat);
         const int y = yForTrack(track);
@@ -622,12 +629,13 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
 {
     const bool isMiddle = e.mods.isMiddleButtonDown();
     const bool isRight  = e.mods.isRightButtonDown();
+    const bool isLeft   = e.mods.isLeftButtonDown();
 
     if (isMiddle)
     {
-        panActive    = true;
-        panStartMouse= e.getEventRelativeTo(this).getPosition();
-        panStartView = view.getViewPosition();
+        panActive = true;
+        panStartMouse = e.getEventRelativeTo(this).getPosition();
+        panStartView  = view.getViewPosition();
         return;
     }
 
@@ -643,7 +651,7 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
-    // Zoom tool: right-click restore, left-click marquee start
+    // Zoom tool logic
     if (tool == ArrangerTool::Zoom)
     {
         if (isRight)
@@ -652,14 +660,16 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
             return;
         }
 
-        if (e.mods.isLeftButtonDown())
+        if (isLeft)
         {
+            // Start marquee selection
             selectionActive = true;
             const auto p = e.getEventRelativeTo(&content).getPosition();
             selectionStartContent = p;
             selectionRectContent  = juce::Rectangle<int>(p.x, p.y, 1, 1);
             canvas.setSelectionRect(selectionRectContent);
 
+            // Save pre-zoom view once at the beginning of a zoom session
             if (!preZoomView)
             {
                 preZoomView = ViewState{ pixelsPerBeat, zoomScale,
@@ -669,45 +679,68 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
         }
     }
 
-    // Regular tools path (Pointer/Resize/Slice)
-    if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
+  // Regular tools path (Pointer/Resize/Slice)
+if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
+{
+    // --- NEW: right-click deletes the clip (any tool) -----------------
+    if (e.mods.isRightButtonDown())
     {
-        activeClip   = cc;
+        // Prevent zoom-tool's right-click restore from triggering
+        rightClickRestoreArm = false;
+
+        // Select (for visual feedback) then delete
         selectedClip = &cc->model;
         updateClipSelectionVisuals();
-        setSelectedLane(trackIndexForClip(cc->model));
 
-        startLaneIndex  = trackIndexForClip(cc->model);
-        targetLaneIndex = startLaneIndex;
-
-        pushUndo();
-
-        if (tool == ArrangerTool::Resize)
-        {
-            if (cc->leftHandle().contains(e.getEventRelativeTo(cc).getPosition()))
-                dragging = DragMode::Left;
-            else if (cc->rightHandle().contains(e.getEventRelativeTo(cc).getPosition()))
-                dragging = DragMode::Right;
-            else
-                dragging = DragMode::None;
-        }
-        else if (tool == ArrangerTool::Slice)
-        {
-            auto beat = canvas.beatsFromX(e.getEventRelativeTo(&content).x);
-            if (snapToGrid) beat = std::round(beat);
-            performSliceAtBeat(*cc, beat);
-            return;
-        }
-        else
-        {
-            dragging = DragMode::Move;
-        }
-
-        dragStartPos          = e.getEventRelativeTo(&content).getPosition();
-        clipStartBeatsAtDown  = cc->model.startBeats;
-        clipLenBeatsAtDown    = cc->model.lengthBeats;
-        clipOffsetBeatsAtDown = cc->model.offsetBeats;
+        removeClip(&cc->model);
+        activeClip        = nullptr;
+        dragging          = DragMode::None;
+        pasteArm          = false;
+        startLaneIndex    = -1;
+        targetLaneIndex   = -1;
+        return;
     }
+    // ------------------------------------------------------------------
+
+    activeClip   = cc;
+    selectedClip = &cc->model; 
+    updateClipSelectionVisuals();
+    setSelectedLane(trackIndexForClip(cc->model));
+
+    startLaneIndex  = trackIndexForClip(cc->model);
+    targetLaneIndex = startLaneIndex;
+
+    pushUndo();
+
+    if (tool == ArrangerTool::Resize)
+    {
+        if (cc->leftHandle().contains(e.getEventRelativeTo(cc).getPosition()))
+            dragging = DragMode::Left;
+        else if (cc->rightHandle().contains(e.getEventRelativeTo(cc).getPosition()))
+            dragging = DragMode::Right;
+        else
+            dragging = DragMode::None;
+    }
+    else if (tool == ArrangerTool::Slice)
+    {
+        auto beat = canvas.beatsFromX(e.getEventRelativeTo(&content).x);
+        if (snapToGrid) beat = std::round(beat);
+        performSliceAtBeat(*cc, beat);
+        return;
+    }
+    else
+    {
+        dragging = DragMode::Move;
+        pendingMoveValid = false;
+        activeClip->toFront(false); // keep above neighbours for smooth preview
+    }
+
+    dragStartPos          = e.getEventRelativeTo(&content).getPosition();
+    clipStartBeatsAtDown  = cc->model.startBeats;
+    clipLenBeatsAtDown    = cc->model.lengthBeats;
+    clipOffsetBeatsAtDown = cc->model.offsetBeats;
+}
+
     else
     {
         const bool inLanes = (yContent >= laneTop());
@@ -716,6 +749,7 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
         if (tool == ArrangerTool::Pointer && inLanes && e.mods.isLeftButtonDown())
         {
             pasteArm = true; // will paste on mouseUp if it was just a click
+            // keep current selection so we know which clip to duplicate
         }
         else
         {
@@ -743,7 +777,6 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
                              juce::jmax(0, panStartView.y - delta.y));
         return;
     }
-
 
     if (playheadDragActive)
     {
@@ -779,20 +812,26 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
 
     if (dragging == DragMode::Move)
     {
-        double nb = clipStartBeatsAtDown + dxBeats;
-        if (snapToGrid) nb = std::round(nb);
-        cm.startBeats = juce::jlimit(0.0, 100000.0, nb);
+        // Smooth preview (no model writes while dragging)
+        double preview = clipStartBeatsAtDown + dxBeats; // live (unsnapped) preview; snap only on commit
+        preview = juce::jlimit(0.0, 100000.0, preview);
 
-        int hoverLane = laneIndexFromYAllowNew(pos.y);
+        pendingMoveStartBeats = preview;
+        pendingMoveValid = true;
+
+        int hoverLane   = laneIndexFromYAllowNew(pos.y);
         targetLaneIndex = juce::jlimit(0, (int)tracks.size(), hoverLane);
 
         const int laneH = laneHeight();
         const int y0    = laneTop();
         const int previewLaneY = y0 + juce::jmin(targetLaneIndex, (int)tracks.size()-1) * laneH + 10;
         const int w     = (int)std::round(cm.lengthBeats * pixelsPerBeat);
-        const int x     = canvas.xFromBeats(cm.startBeats);
+        const int x     = canvas.xFromBeats(preview);
 
         activeClip->setBounds(x, previewLaneY, juce::jmax(24, w), laneH - 20);
+
+        // NOTE: no extendContentToMaxClip(), no onProjectChanged(), no relayout here
+        return;
     }
     else if (dragging == DragMode::Left)
     {
@@ -814,9 +853,10 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
         cm.lengthBeats = juce::jmax(1.0, newLen);
     }
 
+    // Only edge-resize paths hit heavy operations while dragging
     extendContentToMaxClip();
     if (onProjectChanged) onProjectChanged();
-    if (dragging != DragMode::Move) layoutClips();
+    layoutClips();
 }
 
 void Arranger::mouseUp(const juce::MouseEvent& e)
@@ -920,12 +960,12 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
                 refreshAll();
                 if (onProjectChanged) onProjectChanged();
 
-                // reset/finish
+                // finish
                 activeClip = nullptr;
                 dragging = DragMode::None;
                 startLaneIndex = targetLaneIndex = -1;
-                layoutClips();
                 pasteArm = false;
+                layoutClips();
                 return;
             }
         }
@@ -945,12 +985,25 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
                 moveClipToLane(selectedClip, startLaneIndex, targetLaneIndex);
 
             setSelectedLane(juce::jmin(targetLaneIndex, (int)tracks.size() - 1));
+
+            // Commit the final position (snap here, once)
+            if (pendingMoveValid && selectedClip)
+            {
+                double committed = pendingMoveStartBeats;
+                if (snapToGrid) committed = std::round(committed);
+                selectedClip->startBeats = juce::jmax(0.0, committed);
+            }
+
+            extendContentToMaxClip();
+            layoutClips();
+            if (onProjectChanged) onProjectChanged();
         }
     }
 
     activeClip = nullptr;
     dragging = DragMode::None;
     startLaneIndex = targetLaneIndex = -1;
+    pendingMoveValid = false;
 
     layoutClips();
 }
