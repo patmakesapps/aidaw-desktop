@@ -622,13 +622,12 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
 {
     const bool isMiddle = e.mods.isMiddleButtonDown();
     const bool isRight  = e.mods.isRightButtonDown();
-    const bool isLeft   = e.mods.isLeftButtonDown();
 
     if (isMiddle)
     {
-        panActive = true;
-        panStartMouse = e.getEventRelativeTo(this).getPosition();
-        panStartView  = view.getViewPosition();
+        panActive    = true;
+        panStartMouse= e.getEventRelativeTo(this).getPosition();
+        panStartView = view.getViewPosition();
         return;
     }
 
@@ -644,6 +643,7 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    // Zoom tool: right-click restore, left-click marquee start
     if (tool == ArrangerTool::Zoom)
     {
         if (isRight)
@@ -652,16 +652,14 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
             return;
         }
 
-        if (isLeft)
+        if (e.mods.isLeftButtonDown())
         {
-            // Start marquee selection
             selectionActive = true;
             const auto p = e.getEventRelativeTo(&content).getPosition();
             selectionStartContent = p;
             selectionRectContent  = juce::Rectangle<int>(p.x, p.y, 1, 1);
             canvas.setSelectionRect(selectionRectContent);
 
-            // Save pre-zoom view once at the beginning of a zoom session
             if (!preZoomView)
             {
                 preZoomView = ViewState{ pixelsPerBeat, zoomScale,
@@ -674,11 +672,12 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
     // Regular tools path (Pointer/Resize/Slice)
     if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
     {
-        activeClip = cc;
-        selectedClip = &cc->model; updateClipSelectionVisuals();
+        activeClip   = cc;
+        selectedClip = &cc->model;
+        updateClipSelectionVisuals();
         setSelectedLane(trackIndexForClip(cc->model));
 
-        startLaneIndex = trackIndexForClip(cc->model);
+        startLaneIndex  = trackIndexForClip(cc->model);
         targetLaneIndex = startLaneIndex;
 
         pushUndo();
@@ -699,34 +698,43 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
             performSliceAtBeat(*cc, beat);
             return;
         }
-        else { dragging = DragMode::Move; }
+        else
+        {
+            dragging = DragMode::Move;
+        }
 
-        dragStartPos = e.getEventRelativeTo(&content).getPosition();
-        clipStartBeatsAtDown = cc->model.startBeats;
-        clipLenBeatsAtDown   = cc->model.lengthBeats;
-        clipOffsetBeatsAtDown= cc->model.offsetBeats;
+        dragStartPos          = e.getEventRelativeTo(&content).getPosition();
+        clipStartBeatsAtDown  = cc->model.startBeats;
+        clipLenBeatsAtDown    = cc->model.lengthBeats;
+        clipOffsetBeatsAtDown = cc->model.offsetBeats;
     }
     else
     {
-        // Empty area: arm quick-paste ONLY when we are in lanes and using Pointer tool
         const bool inLanes = (yContent >= laneTop());
-        if (tool == ArrangerTool::Pointer && inLanes)
+
+        // Arm quick-paste ONLY for a LEFT click in lanes using the Pointer tool
+        if (tool == ArrangerTool::Pointer && inLanes && e.mods.isLeftButtonDown())
         {
-            pasteArm = true; // we'll handle paste on mouseUp if it was just a click
-            // keep selection so we know which clip to copy
+            pasteArm = true; // will paste on mouseUp if it was just a click
         }
         else
         {
-            // other areas/tools: clear selection and disarm paste
-            selectedClip = nullptr;
-            updateClipSelectionVisuals();
             pasteArm = false;
+            // If it's not a plain left-click background tap in Pointer tool, clear selection
+            if (!(tool == ArrangerTool::Pointer && inLanes))
+            {
+                selectedClip = nullptr;
+                updateClipSelectionVisuals();
+            }
         }
     }
 }
 
 void Arranger::mouseDrag(const juce::MouseEvent& e)
 {
+    // If the mouse actually moved, cancel quick-paste
+    if (pasteArm && e.getDistanceFromDragStart() > 3) pasteArm = false;
+
     if (panActive)
     {
         auto cur = e.getEventRelativeTo(this).getPosition();
@@ -735,6 +743,7 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
                              juce::jmax(0, panStartView.y - delta.y));
         return;
     }
+
 
     if (playheadDragActive)
     {
