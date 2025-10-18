@@ -14,7 +14,7 @@ struct MidiNote
     int    velocity = 100;    // 1..127
 };
 
-/*** Piano-roll editor (data provided by host — no seeding) ***/
+/*** Piano-roll editor (host provides data; no seeding) ***/
 class MidiEditor : public juce::Component
 {
 public:
@@ -25,6 +25,8 @@ public:
 
         addAndMakeVisible(view);
         view.setViewedComponent(&content, false);
+        view.setScrollBarsShown(true, true);
+        view.setScrollOnDragEnabled(true);
 
         // Content <-> parent glue
         content.requestRepaint = [this]{ content.repaint(); };
@@ -38,9 +40,30 @@ public:
             if (r.getY() < vy)              ny = r.getY();
             else if (r.getBottom() > vy+vh) ny = r.getBottom() - vh;
             nx = juce::jmax(0, nx); ny = juce::jmax(0, ny);
+
+            // Auto-extend to enable infinite right scroll
+            const int padPx = 320;
+            const int wantRight = r.getRight() + padPx;
+            const int needContentRight = juce::jmax(wantRight, view.getViewPositionX() + view.getViewWidth() + padPx);
+            if (needContentRight > content.getWidth())
+            {
+                const double needBeats = juce::jmax(0.0,
+                    (needContentRight - Content::keyWidth) / juce::jmax(1.0, pixelsPerBeat)) + 8.0;
+                beatsExtent = juce::jmax(beatsExtent, needBeats);
+                refreshContentSize();
+            }
             view.setViewPosition(nx, ny);
         };
         content.getViewportWidth = [this]{ return view.getViewArea().getWidth(); };
+        content.extendToPixelRight = [this](int pxRight)
+        {
+            if (pxRight > content.getWidth() - 64)
+            {
+                const double needBeats = (pxRight - Content::keyWidth) / juce::jmax(1.0, pixelsPerBeat) + 16.0;
+                beatsExtent = juce::jmax(beatsExtent, needBeats);
+                refreshContentSize();
+            }
+        };
 
         // State refs
         content.notes         = &notes;
@@ -48,18 +71,21 @@ public:
         content.bpmRef        = &bpmValue;
         content.pixelsPerBeat = &pixelsPerBeat;
         content.playheadBeats = &playheadBeats;
+        content.loopEnabled   = &loopEnabled;
+        content.loopStartBeats= &loopStartBeats;
+        content.loopLengthBeats=&loopLengthBeats;
 
         // Defaults (host can override)
         setBPM(120.0);
         setSnap(true);
         setHorizontalZoom(16.0);         // beats per viewport by default
         setPitchView(48, 84);            // C3..C6 initial window
-        setBeatsExtent(16.0);            // 4 bars initial length
+        setBeatsExtent(16.0);            // 4 bars
 
         refreshContentSize();
     }
 
-    // -------- External control (NO HARDCODED DATA) --------
+    // -------- External control --------
     void setNotes(const std::vector<MidiNote>& newNotes)
     {
         notes = newNotes;
@@ -67,10 +93,8 @@ public:
         if (autoFitPitchOnSet)  autoFitPitchToNotes();
         refreshContentSize(); content.repaint();
     }
-
     std::vector<MidiNote>& editNotes() { return notes; }
 
-    // Time/grid
     void setBPM(double bpm)
     {
         bpmValue      = juce::jlimit(40.0, 300.0, bpm);
@@ -81,7 +105,7 @@ public:
     }
     void setSnap(bool on) { snapToGrid = on; content.repaint(); }
 
-    // Horizontal zoom: beats that fit in current viewport width
+    // Horizontal zoom (beats that fit on screen)
     void setHorizontalZoom(double beatsPerScreen)
     {
         beatsPerScreen = juce::jlimit(4.0, 64.0, beatsPerScreen);
@@ -92,21 +116,30 @@ public:
         refreshContentSize(); content.repaint();
     }
 
-    // New one-arg API
-    void zoomDeltaFromWheel(double deltaY /* +up/-down */)
+    // Zoom at mouse position (Arranger parity) — uses screenX anchor (no ambiguous getLocalPoint)
+    void zoomDeltaFromWheel(double deltaY, int screenX)
     {
+        const double oldPPB = pixelsPerBeat;
         const double steps = deltaY > 0 ? +1.0 : -1.0;
         pixelsPerBeat = juce::jlimit(minPPB, maxPPB, pixelsPerBeat * std::pow(1.12, steps));
         zoomScale     = pixelsPerBeat / (ppbAt120 * (120.0 / bpmValue));
-        refreshContentSize(); content.repaint();
-    }
-    // Back-compat with existing Main.cpp call site
-    void zoomDeltaFromWheel(double deltaY, int /*screenX*/)
-    {
-        zoomDeltaFromWheel(deltaY);
-    }
 
-    // Vertical pitch window
+        // mouse X within the viewport
+        int mouseX = screenX - view.getScreenX();
+        mouseX = juce::jlimit(0, view.getWidth(), mouseX);
+
+        const int viewX     = view.getViewPositionX();
+        const int contentX  = viewX + mouseX;
+        const double beatAtMouse = juce::jmax(0.0, (contentX - Content::keyWidth) / oldPPB);
+
+        refreshContentSize();
+        const int newContentX = Content::keyWidth + (int)std::round(beatAtMouse * pixelsPerBeat);
+        view.setViewPosition(juce::jmax(0, newContentX - mouseX), view.getViewPositionY());
+        content.repaint();
+    }
+    // Back-compat call site
+    void zoomDeltaFromWheel(double deltaY) { zoomDeltaFromWheel(deltaY, view.getScreenX()); }
+
     void setPitchView(int minPitchInclusive, int maxPitchInclusive)
     {
         minPitch = juce::jlimit(0, 127, juce::jmin(minPitchInclusive, maxPitchInclusive));
@@ -124,8 +157,7 @@ public:
     }
     void setAutoFitPitchOnSet(bool on) { autoFitPitchOnSet = on; }
 
-    // Timeline extent
-    void setBeatsExtent(double beats) // fallback when there are no notes
+    void setBeatsExtent(double beats)
     {
         beatsExtent = juce::jmax(1.0, beats);
         refreshContentSize(); content.repaint();
@@ -139,13 +171,16 @@ public:
     }
     void setAutoFitBeatsOnSet(bool on) { autoFitBeatsOnSet = on; }
 
-    // Playhead
+    // Playhead + loop
     void setPlayheadBeats(double beats) { playheadBeats = juce::jmax(0.0, beats); content.repaint(); }
+    void setLoopEnabled(bool on)                 { loopEnabled = on; content.repaint(); }
+    void setLoopRegion(double s, double len)     { loopStartBeats = juce::jmax(0.0, s); loopLengthBeats = juce::jmax(0.0, len); content.repaint(); }
+    std::function<void(double startBeats, double lengthBeats)> onLoopChanged;
 
     // JUCE
     void paint(juce::Graphics& g) override
     {
-        g.fillAll(juce::Colour(0xFF0B0E12));
+        g.fillAll(juce::Colours::black);
         g.setColour(juce::Colour(0x22FFFFFF));
         g.drawRect(getLocalBounds());
     }
@@ -169,23 +204,29 @@ private:
         double* pixelsPerBeat   = nullptr;
         double* playheadBeats   = nullptr;
 
+        // loop refs
+        bool*   loopEnabled       = nullptr;
+        double* loopStartBeats    = nullptr;
+        double* loopLengthBeats   = nullptr;
+
         // bridge to parent
         std::function<void()>                     requestRepaint;
         std::function<void(juce::Rectangle<int>)> ensureVisible;
         std::function<int()>                      getViewportWidth;
+        std::function<void(int)>                  extendToPixelRight;
 
-        // constants
-        static constexpr int keyWidth = 66;
-        static constexpr int rulerH   = 22;
+        // constants (keyboard column replaces Arranger header)
+        static constexpr int keyWidth = 72;
+        static constexpr int rulerH   = 24;
         static constexpr int velLaneH = 64;
 
         // layout
-        int   totalRows = 37;   // updated by parent via setPitchView
+        int   totalRows = 37;
         int   rowHeight = 22;
-        int   topPitch  = 84;   // updated by parent via setPitchView
+        int   topPitch  = 84;
 
         // state
-        enum class DragMode { None, Move, ResizeL, ResizeR, Draw, Velocity }; // ← SINGLE definition
+        enum class DragMode { None, Move, ResizeL, ResizeR, Draw, Velocity, Erase, LoopSet, Panning };
         DragMode drag { DragMode::None };
         int      hitIndex = -1;
         juce::Point<int> dragStart {0,0};
@@ -193,6 +234,7 @@ private:
         double   lenBeatAtDown   { 0.0 };
         int      pitchAtDown     { 60 };
         int      velAtDown       { 100 };
+        double   loopStartAtDown { 0.0 };
 
         // helpers
         double ppb() const { return *pixelsPerBeat; }
@@ -213,16 +255,35 @@ private:
             return juce::jlimit(bottomPitch, topPitch, p);
         }
 
-        // ---- Drawing ----
+        // subdivision like ArrangerCanvas (thresholds)
+        // also used for snap granularity
+        int currentSubDivs() const
+        {
+            const double ppb = *pixelsPerBeat;
+            if      (ppb >= 320.0) return 16;
+            else if (ppb >= 200.0) return 8;
+            else if (ppb >= 120.0) return 4;
+            else if (ppb >= 80.0)  return 2;
+            return 0;
+        }
+        double currentSubdivisionBeats() const
+        {
+            const int s = currentSubDivs();
+            return s > 0 ? (1.0 / (double)s) : 1.0; // if no minor lines drawn, snap to beat
+        }
+
+        // ---- Drawing (mirrors ArrangerCanvas style) ----
         void paint(juce::Graphics& g) override
         {
+            // background & divider to match app
             g.fillAll(juce::Colour(0xFF0E1218));
-            g.setColour(juce::Colour(0x222B3340));
+            g.setColour(juce::Colour(0x22FFFFFF));
             g.fillRect(keyWidth, 0, 1, getHeight());
 
             paintRuler(g);
             paintKeys(g);
             paintGrid(g);
+            paintLoopOverlay(g);
             paintNotes(g);
             paintVelocities(g);
             paintPlayhead(g);
@@ -230,25 +291,33 @@ private:
 
         void paintRuler(juce::Graphics& g)
         {
-            auto r = juce::Rectangle<int>(keyWidth, 0, getWidth()-keyWidth, rulerH);
+            auto r = juce::Rectangle<int>(0, 0, getWidth(), rulerH);
             g.setColour(juce::Colour(0xFF0D1016)); g.fillRect(r);
-            g.setColour(juce::Colour(0x223B82F6)); g.fillRect(r.removeFromBottom(1));
+            g.setColour(juce::Colour(0x22FFFFFF)); g.fillRect(r.withY(r.getBottom()-1).withHeight(1));
 
             const int totalBeats = (int)std::ceil((double)(getWidth()-keyWidth)/ppb());
             for (int beat = 0; beat <= totalBeats; ++beat)
             {
-                const int x = keyWidth + (int)std::round(beat * ppb());
+                const int x = xFromBeats((double)beat);
                 const bool isBar = (beat % 4) == 0;
-
-                g.setColour(isBar ? juce::Colour(0x3348A3FF) : juce::Colour(0x18405062));
-                g.fillRect(x, rulerH, 1, getHeight()-rulerH);
 
                 if (isBar)
                 {
-                    g.setColour(juce::Colour(0x77FFFFFF));
+                    g.setColour(juce::Colour(0x66FFFFFF));
                     g.setFont(11.0f);
-                    g.drawText(juce::String((beat / 4) + 1), x + 4, 2, 28, rulerH-4, juce::Justification::centredLeft);
+                    g.drawFittedText(juce::String((beat / 4) + 1), x + 4, 2, 30, rulerH-4,
+                                     juce::Justification::centredLeft, 1);
                 }
+            }
+
+            // Loop handles on ruler
+            if (loopEnabled && *loopEnabled && *loopLengthBeats > 0.0)
+            {
+                const int xs = xFromBeats(*loopStartBeats);
+                const int xe = xFromBeats(*loopStartBeats + *loopLengthBeats);
+                g.setColour(juce::Colour(0xFF1EB980));
+                g.fillRect(xs, 0, 2, rulerH);
+                g.fillRect(xe, 0, 2, rulerH);
             }
         }
 
@@ -266,12 +335,12 @@ private:
                 g.setColour(black ? juce::Colour(0xFF111419) : juce::Colour(0xFF161A21));
                 g.fillRect(key);
 
-                if (pc == 0)  // C label
+                if (pc == 0)  // C labels
                 {
                     g.setColour(juce::Colour(0x66FFFFFF));
                     g.setFont(11.0f);
                     const int octave = (pitch / 12) - 1;
-                    g.drawText("C" + juce::String(octave), key.reduced(6, 2), juce::Justification::centredLeft);
+                    g.drawText("C" + juce::String(octave), key.reduced(8, 3), juce::Justification::centredLeft);
                 }
 
                 g.setColour(juce::Colour(0x222B3340));
@@ -283,6 +352,8 @@ private:
         void paintGrid(juce::Graphics& g)
         {
             auto r = juce::Rectangle<int>(keyWidth, rulerH, getWidth()-keyWidth, gridHeight());
+
+            // zebra octaves (subtle)
             int y = r.getY();
             for (int row = 0; row < totalRows; ++row)
             {
@@ -291,6 +362,42 @@ private:
                 g.fillRect(juce::Rectangle<int>(r.getX(), y, r.getWidth(), rowHeight));
                 y += rowHeight;
             }
+
+            // Bars & beats (ArrangerCanvas style)
+            const double ppb = *pixelsPerBeat;
+            const int totalBeats = (int)std::ceil((getWidth() - keyWidth) / ppb);
+            for (int beat = 0; beat <= totalBeats; ++beat)
+            {
+                const int x = keyWidth + (int)std::round(beat * ppb);
+                const bool isBar = (beat % 4) == 0;
+
+                g.setColour(isBar ? juce::Colour(0x44FFFFFF) : juce::Colour(0x18FFFFFF));
+                g.fillRect(x, rulerH, 1, getHeight() - rulerH);
+            }
+
+            // Subdivisions (same thresholds as ArrangerCanvas)
+            const int subDivs = currentSubDivs();
+            if (subDivs > 0)
+            {
+                g.setColour(juce::Colour(0x11FFFFFF));
+                for (int beat = 0; beat <= totalBeats; ++beat)
+                    for (int s = 1; s < subDivs; ++s)
+                    {
+                        const double frac = (double)s / (double)subDivs;
+                        const int x = keyWidth + (int)std::round((beat + frac) * ppb);
+                        g.fillRect(x, rulerH, 1, getHeight() - rulerH);
+                    }
+            }
+        }
+
+        void paintLoopOverlay(juce::Graphics& g)
+        {
+            if (!(loopEnabled && *loopEnabled && *loopLengthBeats > 0.0)) return;
+            const int xs = xFromBeats(*loopStartBeats);
+            const int xe = xFromBeats(*loopStartBeats + *loopLengthBeats);
+            juce::Rectangle<int> loopRect(xs, rulerH, xe - xs, gridHeight());
+            g.setColour(juce::Colour(0x1532E6A0));
+            g.fillRect(loopRect);
         }
 
         void paintNotes(juce::Graphics& g)
@@ -306,13 +413,12 @@ private:
                 const int y   = rulerH + row * rowHeight + 3;
                 const int w   = juce::jmax(6, (int)std::round(n.lengthBeats * ppb()));
 
-                const bool alt = (i % 2) == 0;
-                const auto body   = juce::Colour(alt ? 0xFF2C72FA : 0xFF7A3BFF);
+                const auto body   = (i % 2 == 0) ? juce::Colour(0xFF2C72FA) : juce::Colour(0xFF7A3BFF);
                 const auto border = body.brighter(0.35f);
 
                 juce::Rectangle<float> rf((float)x, (float)y, (float)w, (float)h);
                 g.setColour(body.darker(0.35f)); g.fillRoundedRectangle(rf, 6.0f);
-                g.setColour(border);             g.drawRoundedRectangle(rf, 6.0f, 1.5f);
+                g.setColour(border);              g.drawRoundedRectangle(rf, 6.0f, 1.2f);
 
                 g.setColour(juce::Colour(0x88FFFFFF));
                 g.fillRect(x, y, 3, h);
@@ -327,7 +433,6 @@ private:
             g.setColour(juce::Colour(0x223B82F6)); g.fillRect(r.removeFromTop(1));
 
             if (!notes) return;
-
             const int baseY = getHeight() - 10;
             for (const auto& n : *notes)
             {
@@ -342,11 +447,11 @@ private:
         {
             if (!playheadBeats) return;
             const int x = xFromBeats(*playheadBeats);
-            g.setColour(juce::Colour(0xFF20C997));
+            g.setColour(juce::Colour(0xFF3B82F6));
             g.fillRect(x-1, 0, 2, getHeight());
         }
 
-        // ---- Interaction ----
+        // ---- Hit testing ----
         enum class HitEdge { None, Left, Right, Body };
 
         int noteAtPoint(juce::Point<int> p, HitEdge& edgeOut) const
@@ -377,6 +482,7 @@ private:
             return -1;
         }
 
+        // ---- Interaction ----
         void mouseDown(const juce::MouseEvent& e) override
         {
             grabKeyboardFocus();
@@ -385,12 +491,46 @@ private:
             const auto p = e.getPosition();
             dragStart = p;
 
+            // Middle mouse -> panning
+            if (e.mods.isMiddleButtonDown())
+            {
+                drag = DragMode::Panning;
+                return;
+            }
+
+            // SHIFT on ruler = set loop region
+            if (p.y < rulerH && e.mods.isShiftDown())
+            {
+                drag = DragMode::LoopSet;
+                loopStartAtDown = beatsFromX(p.x);
+                if (*snapToGridRef) loopStartAtDown = snapToSubdivision(loopStartAtDown);
+                if (loopEnabled) *loopEnabled = true;
+                if (loopStartBeats) *loopStartBeats = loopStartAtDown;
+                if (loopLengthBeats) *loopLengthBeats = 0.0;
+                repaintMe();
+                return;
+            }
+
             // velocity lane?
             if (p.y >= getHeight()-velLaneH)
             {
                 drag = DragMode::Velocity;
                 hitIndex = closestNoteToX(p.x);
                 if (hitIndex >= 0) velAtDown = (*notes)[(size_t)hitIndex].velocity;
+                return;
+            }
+
+            // Right-click erase mode
+            if (e.mods.isRightButtonDown())
+            {
+                drag = DragMode::Erase;
+                HitEdge where; hitIndex = noteAtPoint(p, where);
+                if (hitIndex >= 0)
+                {
+                    notes->erase(notes->begin() + hitIndex);
+                    hitIndex = -1;
+                    repaintMe();
+                }
                 return;
             }
 
@@ -413,7 +553,7 @@ private:
                 const int row = juce::jlimit(0, totalRows-1, (p.y - rulerH) / rowHeight);
                 const int pitch = rowToPitch(row);
                 double beat = beatsFromX(p.x);
-                if (*snapToGridRef) beat = std::round(beat * 4.0) / 4.0;
+                if (*snapToGridRef) beat = snapToSubdivision(beat);
 
                 MidiNote n; n.pitch = pitch; n.startBeats = beat; n.lengthBeats = 1.0; n.velocity = 100;
                 notes->push_back(n);
@@ -427,35 +567,73 @@ private:
 
         void mouseDrag(const juce::MouseEvent& e) override
         {
-            if (!notes || hitIndex < 0) return;
-            auto& n = (*notes)[(size_t)hitIndex];
+            if (!notes) return;
             const auto p = e.getPosition();
+
+            if (drag == DragMode::Panning)
+            {
+                if (auto* vp = findParentComponentOfClass<juce::Viewport>())
+                {
+                    auto pos = vp->getViewPosition();
+                    vp->setViewPosition(pos - (e.getOffsetFromDragStart()));
+                }
+                return;
+            }
+
+            if (drag == DragMode::LoopSet && loopLengthBeats && loopStartBeats)
+            {
+                double b0 = loopStartAtDown;
+                double b1 = beatsFromX(p.x);
+                if (*snapToGridRef) b1 = snapToSubdivision(b1);
+                if (b1 < b0) std::swap(b0, b1);
+                *loopStartBeats  = b0;
+                *loopLengthBeats = juce::jmax(0.0, b1 - b0);
+                if (extendToPixelRight) extendToPixelRight(xFromBeats(b1) + 64);
+                repaintMe();
+                return;
+            }
+
+            if (drag == DragMode::Erase)
+            {
+                HitEdge where; int idx = noteAtPoint(p, where);
+                if (idx >= 0 && idx < (int)notes->size())
+                {
+                    notes->erase(notes->begin() + idx);
+                    repaintMe();
+                }
+                return;
+            }
 
             if (drag == DragMode::Velocity)
             {
+                if (hitIndex < 0) return;
+                auto& n = (*notes)[(size_t)hitIndex];
                 const int baseY = getHeight() - 10;
                 int h = juce::jlimit(0, velLaneH-16, baseY - p.y);
                 n.velocity = juce::jlimit(1, 127, (int)std::round((h / (double)(velLaneH-16))*127.0));
                 repaintMe(); return;
             }
 
+            if (hitIndex < 0) return;
+            auto& n = (*notes)[(size_t)hitIndex];
             const double dxBeats = (p.x - dragStart.x) / ppb();
             const int rowDelta   = (p.y - dragStart.y) / rowHeight;
 
             if (drag == DragMode::Move)
             {
                 double b = startBeatAtDown + dxBeats;
-                if (*snapToGridRef) b = std::round(b * 4.0)/4.0;
+                if (*snapToGridRef) b = snapToSubdivision(b);
                 n.startBeats = juce::jmax(0.0, b);
                 n.pitch      = juce::jlimit(topPitch - totalRows + 1, topPitch, pitchAtDown - rowDelta);
+                if (ensureVisible) ensureVisible(juce::Rectangle<int>(xFromBeats(n.startBeats + n.lengthBeats), rulerH, 8, rowHeight));
             }
             else if (drag == DragMode::ResizeL)
             {
                 double newStart = startBeatAtDown + dxBeats;
                 double newLen   = lenBeatAtDown   - dxBeats;
-                if (*snapToGridRef) { newStart = std::round(newStart * 4.0)/4.0; newLen = std::round(newLen*4.0)/4.0; }
+                if (*snapToGridRef) { newStart = snapToSubdivision(newStart); newLen = snapToSubdivision(newLen); }
                 newStart = juce::jmax(0.0, newStart);
-                newLen   = juce::jmax(0.125, newLen);
+                newLen   = juce::jmax(0.03125, newLen); // >= 1/32
                 n.lengthBeats = newLen;
                 n.startBeats  = newStart;
                 n.pitch       = juce::jlimit(topPitch - totalRows + 1, topPitch, pitchAtDown - rowDelta);
@@ -463,21 +641,27 @@ private:
             else if (drag == DragMode::ResizeR)
             {
                 double newLen = lenBeatAtDown + dxBeats;
-                if (*snapToGridRef) newLen = std::round(newLen*4.0)/4.0;
-                n.lengthBeats = juce::jmax(0.125, newLen);
+                if (*snapToGridRef) newLen = snapToSubdivision(newLen);
+                n.lengthBeats = juce::jmax(0.03125, newLen);
                 n.pitch       = juce::jlimit(topPitch - totalRows + 1, topPitch, pitchAtDown - rowDelta);
+                if (ensureVisible) ensureVisible(juce::Rectangle<int>(xFromBeats(n.startBeats + n.lengthBeats), rulerH, 8, rowHeight));
             }
             else if (drag == DragMode::Draw)
             {
-                double len = juce::jmax(0.125, (p.x - dragStart.x) / ppb());
-                if (*snapToGridRef) len = std::round(len*4.0)/4.0;
+                double len = juce::jmax(0.03125, (p.x - dragStart.x) / ppb());
+                if (*snapToGridRef) len = snapToSubdivision(len);
                 n.lengthBeats = len;
+                if (ensureVisible) ensureVisible(juce::Rectangle<int>(xFromBeats(n.startBeats + len), rulerH, 8, rowHeight));
             }
             repaintMe();
         }
 
         void mouseUp(const juce::MouseEvent&) override
-        { drag = DragMode::None; hitIndex = -1; }
+        {
+            if (drag == DragMode::LoopSet && onLoopChanged && loopEnabled && *loopEnabled && loopLengthBeats)
+                onLoopChanged(*loopStartBeats, *loopLengthBeats);
+            drag = DragMode::None; hitIndex = -1;
+        }
 
         bool keyPressed (const juce::KeyPress& key) override
         {
@@ -498,7 +682,9 @@ private:
                 auto p = vp->getViewPosition();
                 const int dx = (int)std::round(-wheel.deltaY * 160.0);
                 const int maxX = juce::jmax(0, getWidth() - vp->getViewWidth());
-                vp->setViewPosition(juce::jlimit(0, maxX, p.getX() + dx), p.getY());
+                int nx = juce::jlimit(0, maxX, p.getX() + dx);
+                vp->setViewPosition(nx, p.getY());
+                if (extendToPixelRight) extendToPixelRight(nx + vp->getViewWidth());
             }
         }
 
@@ -522,37 +708,44 @@ private:
             return bi;
         }
 
+        double snapToSubdivision(double beats) const
+        {
+            const double sub = currentSubdivisionBeats();
+            return std::round(beats / sub) * sub;
+        }
+
         void repaintMe(){ if (requestRepaint) requestRepaint(); }
+
+        std::function<void(double,double)> onLoopChanged;
     } content;
 
-    // ---- State (no hardcoded demo data) ----
+    // ---- State ----
     juce::Viewport view;
     std::vector<MidiNote> notes;
 
-    // grid/time
     double bpmValue { 120.0 };
     bool   snapToGrid { true };
 
-    // zoom mapping (kept as internal tunables)
     double ppbAt120 { 52.0 };
     double pixelsPerBeat { 52.0 };
     double zoomScale { 1.0 };
     static constexpr double minPPB = 12.0;
     static constexpr double maxPPB = 1024.0;
 
-    // pitch window (externally controllable)
     int minPitch { 48 };
     int maxPitch { 84 };
 
-    // content extent if there are no notes / or as a floor
     double beatsExtent { 16.0 };
 
-    // auto-fit flags for convenience (you can turn these off)
     bool autoFitPitchOnSet { true };
     bool autoFitBeatsOnSet { true };
 
-    // playhead
     double playheadBeats { 0.0 };
+
+    // loop
+    bool   loopEnabled { false };
+    double loopStartBeats { 0.0 };
+    double loopLengthBeats { 0.0 };
 
     void refreshContentSize()
     {
@@ -568,6 +761,8 @@ private:
         const int height  = Content::rulerH + content.totalRows * content.rowHeight + Content::velLaneH;
 
         content.setSize(width, height);
+
+        content.onLoopChanged = [this](double s, double l){ if (onLoopChanged) onLoopChanged(s, l); };
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiEditor)

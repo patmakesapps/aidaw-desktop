@@ -309,6 +309,16 @@ public:
             resized(); // keep bounds right
         };
 
+        // --- Loop wiring from MIDI editor (SHIFT-drag on ruler) ---
+        midi.setLoopEnabled(true);
+        midi.setLoopRegion(loopStartBeats, loopLengthBeats);
+        midi.onLoopChanged = [this](double start, double len)
+        {
+            loopStartBeats  = juce::jmax(0.0, start);
+            loopLengthBeats = juce::jmax(0.0, len);
+            loopEnabled     = (loopLengthBeats > 0.0);
+        };
+
         setWantsKeyboardFocus(true);
         setSize(1200, 720);
 
@@ -331,7 +341,7 @@ public:
         topBar.setBounds(area.removeFromTop(56));
         auto body = area.reduced(8, 8);
         arranger.setBounds(body);
-        midi.setBounds(body);
+        midi.setBounds(body);      // full-screen inside window body
         mixerUI.setBounds(body);
     }
 
@@ -375,15 +385,27 @@ public:
 private:
     void timerCallback() override
     {
-        // Follow engine playhead in arranger & midi (visual only)
-        const double ph = timeline.getPlayheadBeats();
+        // Follow engine playhead (visual)
+        double ph = timeline.getPlayheadBeats();
+
+        // Simple transport loop when enabled
+        if (playing && loopEnabled && loopLengthBeats > 0.0)
+        {
+            const double loopEnd = loopStartBeats + loopLengthBeats;
+            if (ph >= loopEnd)
+            {
+                timeline.setPlayheadBeats(loopStartBeats);
+                ph = loopStartBeats;
+            }
+        }
+
         arranger.setPlayheadBeats(ph);
         midi.setPlayheadBeats(ph);
     }
 
-    TopBar topBar;
-    Arranger arranger;
-    MidiEditor midi;
+    TopBar         topBar;
+    Arranger       arranger;
+    MidiEditor     midi;
     MixerComponent mixerUI;
 
     juce::MixerAudioSource& mixer;
@@ -393,6 +415,11 @@ private:
     bool   playing     { false };
     bool   recordArmed { false };
     double currentBpm  { 120.0 };
+
+    // --- Loop state (defaults to 4-bar loop at start) ---
+    bool   loopEnabled     { true };
+    double loopStartBeats  { 0.0 };
+    double loopLengthBeats { 4.0 };
 
     juce::TooltipWindow tooltip { this, 350 };
 
