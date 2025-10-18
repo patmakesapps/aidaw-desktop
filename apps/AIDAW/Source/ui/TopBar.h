@@ -46,20 +46,10 @@ public:
         setLookAndFeel(&look);
 
         // Transport
-        playPause.setButtonText("Play");
-        playPause.addListener(this);
-        playPause.setTooltip("Space = Play/Pause");
-        addAndMakeVisible(playPause);
-
-        stop.setButtonText("Stop");
-        stop.addListener(this);
-        stop.setTooltip("Stop and return to start");
-        addAndMakeVisible(stop);
-
-        record.setButtonText("Rec");
-        record.addListener(this);
-        record.setTooltip("Arm recording");
-        addAndMakeVisible(record);
+        playPause.setButtonText("Play");  playPause.addListener(this);  playPause.setTooltip("Space = Play/Pause");
+        stop.setButtonText("Stop");       stop.addListener(this);       stop.setTooltip("Stop and return to start");
+        record.setButtonText("Rec");      record.addListener(this);     record.setTooltip("Arm recording");
+        addAndMakeVisible(playPause); addAndMakeVisible(stop); addAndMakeVisible(record);
 
         // Mode buttons
         modeComposer.setButtonText("Composer");
@@ -72,6 +62,13 @@ public:
             addAndMakeVisible(b);
         }
         setMode(AppMode::Composer, false);
+
+        // small dot between clusters
+        clusterDot.setText("•", juce::dontSendNotification);
+        clusterDot.setJustificationType(juce::Justification::centred);
+        clusterDot.setColour(juce::Label::textColourId, juce::Colour(0x66FFFFFF));
+        clusterDot.setFont(juce::Font(20.0f, juce::Font::plain));
+        addAndMakeVisible(clusterDot);
 
         // Title
         title.setText("AIDAW", juce::dontSendNotification);
@@ -200,9 +197,13 @@ public:
         const int gap       = 8;
         const int btnH      = 32;
 
-        // Buttons: enforce same width for all 6 (fits long “MIDI Editor” label).
-        const int buttonW   = 126;        // <= tweak if you want tighter fit
-        const int clusterGap= 24;         // visual spacer between transport and modes
+        // Desired width per button; will shrink if needed
+        const int desiredBtnW = 126;
+        const int minBtnW     = 96;
+
+        // Title gutter (keeps center clean)
+        const int titleW      = 220;
+        const int titleGutter = titleW + 32;
 
         const int winBtnW   = 48;
         const int pillW     = 320;
@@ -210,7 +211,7 @@ public:
 
         auto r = getLocalBounds().reduced(sidePad, vpad);
 
-        // Window controls (far right)
+        // Rightmost window controls
         auto win = r.removeFromRight(winBtnW * 2 + gap);
         btnClose.setBounds(win.removeFromRight(winBtnW).reduced(4));
         win.removeFromRight(gap);
@@ -222,10 +223,10 @@ public:
         bpmPillBounds  = pillBlock.removeFromLeft(pillW);
 
         auto inside = bpmPillBounds.reduced(12, 8);
-        int totalW = inside.getWidth();
-        int smallBtnW = 28;
-        int labelW  = 42;
-        int editW   = totalW - (smallBtnW * 2 + labelW * 2 + 16);
+        int totalW   = inside.getWidth();
+        int smallBtnW= 28;
+        int labelW   = 42;
+        int editW    = totalW - (smallBtnW * 2 + labelW * 2 + 16);
 
         bpmLabelLeft.setBounds(inside.removeFromLeft(labelW));
         minusBtn.setBounds(inside.removeFromLeft(smallBtnW).reduced(2, 2));
@@ -238,31 +239,42 @@ public:
         pillBlock.removeFromLeft(gap);
         clickToggle.setBounds(pillBlock.removeFromLeft(clickW));
 
-        // Left side: transport + spacer + modes, each with identical size
-        // Transport cluster
-        auto leftCluster = r.removeFromLeft(buttonW * 3 + gap * 2 + clusterGap + buttonW * 3 + gap * 2);
-        auto transport = leftCluster.removeFromLeft(buttonW * 3 + gap * 2);
-        playPause.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
-        transport.removeFromLeft(gap);
-        stop.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
-        transport.removeFromLeft(gap);
-        record.setBounds(transport.removeFromLeft(buttonW).withHeight(btnH));
+        // Reserve centered gutter for title
+        const int cx = getWidth() / 2;
+        const int gutterW = titleGutter;
+        juce::Rectangle<int> gutter(cx - gutterW/2, r.getY(), gutterW, r.getHeight());
 
-        // Spacer between clusters
-        leftCluster.removeFromLeft(clusterGap);
+        // Left-of-title area will host all six buttons + dot
+        auto leftSide = r.removeFromLeft(juce::jmax(0, gutter.getX() - r.getX()));
 
-        // Modes cluster
-        auto modes = leftCluster.removeFromLeft(buttonW * 3 + gap * 2);
-        modeComposer.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
-        modes.removeFromLeft(gap);
-        modeMidi.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
-        modes.removeFromLeft(gap);
-        modeMixer.setBounds(modes.removeFromLeft(buttonW).withHeight(btnH));
+        // Compute uniform button width that fits 6 buttons and 5 small gaps + dot
+        const int dotW = 16;      // width for the centered dot
+        const int g    = gap;     // inter-button gap
+        int avail = leftSide.getWidth();
+        int w = (avail - (g * 5) - dotW) / 6;
+        w = juce::jlimit(minBtnW, desiredBtnW, w);
 
-        // Title centered (independent of clusters)
-        const int titleW = 200, titleH = btnH;
-        const int cx     = getWidth() / 2;
-        title.setBounds(cx - titleW/2, vpad, titleW, titleH);
+        // Layout: Play, Stop, Rec, dot, Composer, MIDI, Mixer
+        auto t = leftSide;
+        playPause.setBounds(t.removeFromLeft(w).withHeight(btnH));
+        t.removeFromLeft(g);
+        stop.setBounds(t.removeFromLeft(w).withHeight(btnH));
+        t.removeFromLeft(g);
+        record.setBounds(t.removeFromLeft(w).withHeight(btnH));
+        t.removeFromLeft(g);
+
+        clusterDot.setBounds(t.removeFromLeft(dotW).withHeight(btnH));
+        t.removeFromLeft(g);
+
+        modeComposer.setBounds(t.removeFromLeft(w).withHeight(btnH));
+        t.removeFromLeft(g);
+        modeMidi.setBounds(t.removeFromLeft(w).withHeight(btnH));
+        t.removeFromLeft(g);
+        modeMixer.setBounds(t.removeFromLeft(w).withHeight(btnH));
+
+        // Title dead-center in the gutter
+        title.setBounds(cx - titleW/2, vpad, titleW, btnH);
+        title.toFront(false);
     }
 
 private:
@@ -315,6 +327,7 @@ private:
 
     juce::TextButton playPause, stop, record;
     juce::TextButton modeComposer, modeMidi, modeMixer;
+    juce::Label      clusterDot;
     juce::Label      title;
 
     juce::Rectangle<int> bpmPillBounds;
