@@ -165,8 +165,8 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
 
 void Arranger::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colours::black);
-    g.setColour(juce::Colour(0x22FFFFFF));
+    g.fillAll(juce::Colour(Theme::colBgMain));
+    g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.drawRect(getLocalBounds());
 }
 
@@ -855,6 +855,31 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
             return;
         }
     }
+// --- duplicate-on-click (selected + simple left click) ---
+if (activeClip && tool == ArrangerTool::Pointer)
+{
+    const auto upPos = e.getEventRelativeTo(&content).getPosition();
+    const bool tinyMovement = (std::abs(upPos.x - dragStartPos.x) < 3 && std::abs(upPos.y - dragStartPos.y) < 3);
+    const bool leftClick    = e.mods.testFlags(juce::ModifierKeys::leftButtonModifier);
+
+    if (tinyMovement && leftClick && selectedClip == &activeClip->model)
+    {
+        // duplicate in-place to the right
+        ClipModel copy = activeClip->model;
+        copy.id = juce::Uuid().toString();
+        copy.startBeats = activeClip->model.startBeats + activeClip->model.lengthBeats;
+
+        // insert into same lane
+        const int laneIdx = trackIndexForClip(activeClip->model);
+        if (laneIdx >= 0 && laneIdx < (int)tracks.size())
+        {
+            auto& lane = tracks[(size_t)laneIdx];
+            lane.clips.push_back(std::move(copy));
+            refreshAll();
+            if (onProjectChanged) onProjectChanged();
+        }
+    }
+}
 
     if (activeClip)
     {
