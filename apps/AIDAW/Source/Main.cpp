@@ -5,9 +5,10 @@
 #include "ui/TopBar.h"
 #include "ui/Arranger.h"
 #include "ui/MidiEditor.h"
+#include "ui/MixerComponent.h"
 
 /* ============================================================
-   TimelineAudioSource
+   TimelineAudioSource  (unchanged)
    ============================================================ */
 class TimelineAudioSource : public juce::AudioSource
 {
@@ -160,7 +161,7 @@ private:
 };
 
 /* ============================================================
-   Metronome
+   Metronome (unchanged)
    ============================================================ */
 class MetronomeSource : public juce::AudioSource
 {
@@ -238,26 +239,32 @@ public:
 
         addAndMakeVisible(topBar);
         addAndMakeVisible(arranger);
-        addChildComponent(midi);        // start hidden
-        addChildComponent(mixerView);   // start hidden
+        addAndMakeVisible(midi);      midi.setVisible(false);
+        addAndMakeVisible(mixerUI);   mixerUI.setVisible(false);
+
+        (void)tooltip;
 
         mixer.addInputSource(&metronome, false);
         mixer.addInputSource(&timeline,  false);
 
         arranger.onProjectChanged = [this] { timeline.requestRebuild(); };
 
-        // Playhead (arranger <-> engine)
+        // Playhead sync
         arranger.onPlayheadSet = [this](double beats){ timeline.setPlayheadBeats(beats); };
         arranger.isPlayingQuery = [this]() { return playing; };
 
+        // Transport
         topBar.onPlayPause = [this](bool isPlaying)
         {
             if (recordArmed && playing) return;
             playing = isPlaying;
             metronome.setPlaying(playing);
             timeline.setPlaying(playing);
-            if (playing) // start from UI playhead
+            if (playing)
+            {
+                // When starting, use the active view’s playhead if needed
                 timeline.setPlayheadBeats(arranger.getPlayheadBeats());
+            }
         };
 
         topBar.onStop = [this]()
@@ -268,6 +275,7 @@ public:
             timeline.setPlaying(false);
             timeline.resetToStart();
             arranger.setPlayheadBeats(0.0);
+            midi.setPlayheadBeats(0.0);
             topBar.setPlaying(false);
         };
 
@@ -289,41 +297,16 @@ public:
         {
             metronome.setClickEnabled(on);
             arranger.setSnap(on);
+            midi.setSnap(on);
         };
 
+        // View mode switching
         topBar.onModeChanged = [this](TopBar::AppMode m)
         {
-            switch (m)
-            {
-                case TopBar::AppMode::Composer:
-                    arranger.setVisible(true);
-                    midi.setVisible(false);
-                    mixerView.setVisible(false);
-                    break;
-                case TopBar::AppMode::Midi:
-                    arranger.setVisible(false);
-                    midi.setVisible(true);
-                    mixerView.setVisible(false);
-                    break;
-                case TopBar::AppMode::Mixer:
-                    arranger.setVisible(false);
-                    midi.setVisible(false);
-                    mixerView.setVisible(true);
-                    break;
-            }
-            resized();
-            repaint();
-        };
-
-        topBar.onMinimize = [this]()
-        {
-            if (auto* dw = findParentComponentOfClass<juce::DocumentWindow>())
-                dw->setMinimised(true);
-        };
-        topBar.onClose = []()
-        {
-            if (auto* app = juce::JUCEApplicationBase::getInstance())
-                app->systemRequestedQuit();
+            arranger.setVisible(m == TopBar::AppMode::Composer);
+            midi.setVisible    (m == TopBar::AppMode::Midi);
+            mixerUI.setVisible (m == TopBar::AppMode::Mixer);
+            resized(); // keep bounds right
         };
 
         setWantsKeyboardFocus(true);
@@ -346,11 +329,10 @@ public:
     {
         auto area = getLocalBounds();
         topBar.setBounds(area.removeFromTop(56));
-        auto content = area.reduced(8, 8);
-
-        arranger.setBounds(content);
-        midi.setBounds(content);
-        mixerView.setBounds(content);
+        auto body = area.reduced(8, 8);
+        arranger.setBounds(body);
+        midi.setBounds(body);
+        mixerUI.setBounds(body);
     }
 
     bool keyPressed (const juce::KeyPress& key) override
@@ -378,15 +360,13 @@ public:
         return false;
     }
 
-    // Ctrl + wheel = horizontal zoom at the mouse position
+    // Ctrl + wheel = horizontal zoom at the mouse position (anywhere in window)
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
     {
         if (e.mods.isCtrlDown())
         {
-            if (arranger.isVisible())
-                arranger.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
-            else if (midi.isVisible())
-                midi.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
+            if (arranger.isVisible()) arranger.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
+            if (midi.isVisible())     midi.zoomDeltaFromWheel(wheel.deltaY, e.getScreenPosition().getX());
             return;
         }
         juce::Component::mouseWheelMove(e, wheel);
@@ -395,26 +375,16 @@ public:
 private:
     void timerCallback() override
     {
-        // Follow engine playhead
-        arranger.setPlayheadBeats(timeline.getPlayheadBeats());
+        // Follow engine playhead in arranger & midi (visual only)
+        const double ph = timeline.getPlayheadBeats();
+        arranger.setPlayheadBeats(ph);
+        midi.setPlayheadBeats(ph);
     }
-
-    // Simple placeholder mixer view (kept minimal)
-    class MixerPlaceholder : public juce::Component
-    {
-        void paint(juce::Graphics& g) override
-        {
-            g.fillAll(juce::Colour(0xFF0B0E12));
-            g.setColour(juce::Colour(0x66FFFFFF));
-            g.setFont(18.0f);
-            g.drawFittedText("Mixer (placeholder)", getLocalBounds(), juce::Justification::centred, 1);
-        }
-    };
 
     TopBar topBar;
     Arranger arranger;
     MidiEditor midi;
-    MixerPlaceholder mixerView;
+    MixerComponent mixerUI;
 
     juce::MixerAudioSource& mixer;
     MetronomeSource&        metronome;
@@ -424,11 +394,13 @@ private:
     bool   recordArmed { false };
     double currentBpm  { 120.0 };
 
+    juce::TooltipWindow tooltip { this, 350 };
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 
 /* ============================================================
-   Window / App
+   Window / App  (unchanged except includes)
    ============================================================ */
 class MainWindow : public juce::DocumentWindow,
                    private juce::KeyListener
