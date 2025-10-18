@@ -1,40 +1,37 @@
 #pragma once
 #include <JuceHeader.h>
-#include <optional>
 #include "Models.h"
 #include "TrackLaneComponent.h"
+#include "Theme.h"
 
 class ArrangerCanvas : public juce::Component
 {
 public:
-    ArrangerCanvas(std::vector<TrackModel>& tracks,
+    ArrangerCanvas(std::vector<TrackModel>&,
                    double& bpm,
                    bool& snap,
                    double& pxPerBeat,
                    double& playheadBeatsRefIn,
-                   std::function<void()> notifyChanged);
+                   std::function<void()> notifyChangedIn);
 
     void paint(juce::Graphics&) override;
 
-    int    xFromBeats(double beats) const;
-    double beatsFromX(int x) const;
+    // helpers shared with Arranger
+    int    xFromBeats(double beats) const { return Theme::xFromBeats(beats, pixelsPerBeatRef, TrackLaneComponent::headerWidth); }
+    double beatsFromX(int x) const        { return Theme::beatsFromX(x, pixelsPerBeatRef, TrackLaneComponent::headerWidth);   }
 
-    // Allow Arranger to show/hide the marquee (content coords)
-    void setSelectionRect(std::optional<juce::Rectangle<int>> r)
-    {
-        selectionRect = std::move(r);
-        repaint();
-    }
+    void setSelectionRect(std::optional<juce::Rectangle<int>> r) { selectionRect = std::move(r); repaint(); }
 
-private:
+    static constexpr int rulerH = Theme::rulerH;
+
     std::vector<TrackModel>& tracks;
     double& bpmRef;
     bool&   snapToGridRef;
     double& pixelsPerBeatRef;
     double& playheadBeatsRef;
+
     std::function<void()> notifyChanged;
 
+private:
     std::optional<juce::Rectangle<int>> selectionRect;
-
-    static constexpr int rulerH = 20;
 };
