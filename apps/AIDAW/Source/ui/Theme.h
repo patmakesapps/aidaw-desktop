@@ -15,23 +15,23 @@ struct Theme
     static constexpr uint32 colBgPanel   = 0xFF232B38;
     static constexpr uint32 colBgRuler   = 0xFF202734;
 
-    // ---- Lines / grid (subtler than before) ----
+    // ---- Lines / grid
     static constexpr uint32 colHeaderDiv = 0x224A586E; // key-edge divider
-    static constexpr uint32 colGridBar   = 0x66FFFFFF; // bar lines (softer)
+    static constexpr uint32 colGridBar   = 0x66FFFFFF; // bar lines
     static constexpr uint32 colGridBeat  = 0x22FFFFFF; // beats
     static constexpr uint32 colGridSub   = 0x10FFFFFF; // subdivisions
     static constexpr uint32 colOctave    = 0x2CFFFFFF; // octave accent (thin)
-static constexpr uint32 colBarTick   = 0x55FFFFFF; // <<< add this
+    static constexpr uint32 colBarTick   = 0x55FFFFFF; // top tick marks in ruler
 
-    
-    // ---- MIDI row zebra ----
+    // ---- MIDI row zebra (matches arranger darkness) ----
     static constexpr uint32 colRowEven   = 0xFF2A3343;
     static constexpr uint32 colRowOdd    = 0xFF262F3E;
 
-    // ---- Piano keys ----
-    static constexpr uint32 colKeyWhite  = 0xFFE6EDF6;
-    static constexpr uint32 colKeyBlack  = 0xFFA4B0BF;
-    static constexpr uint32 colKeySep    = 0x19314252;
+    // ---- Piano keys (dark) ----
+    // white-keys become dark grey; black-keys become near black
+    static constexpr uint32 colKeyWhite  = 0xFF2B3341; // was light; now dark
+    static constexpr uint32 colKeyBlack  = 0xFF1D242E; // deeper for black keys
+    static constexpr uint32 colKeySep    = 0x29314252;
 
     // ---- Text / labels ----
     static constexpr uint32 colText      = 0xE6FFFFFF;
@@ -51,6 +51,11 @@ static constexpr uint32 colBarTick   = 0x55FFFFFF; // <<< add this
 
     // ---- Velocity lane ----
     static constexpr uint32 colVelLane   = 0xFF242E3B;
+
+    // ---- Buttons (parity with Arranger) ----
+    static constexpr uint32 colBtnIdle   = 0xFF232B38;
+    static constexpr uint32 colBtnActive = 0xFF1C1F26;
+    static constexpr uint32 colBtnText   = 0xE6FFFFFF;
 
     // ---- Helpers ----
     static inline int    xFromBeats(double beats, double ppb, int x0) { return x0 + (int)std::round(beats * ppb); }

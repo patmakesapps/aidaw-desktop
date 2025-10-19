@@ -16,11 +16,11 @@ juce_add_gui_app(AIDAW
 
 # ---------- Sources ----------
 target_sources(AIDAW PRIVATE
+    # App entry
     apps/AIDAW/Source/Main.cpp
 
-    # UI (modularised Arranger)
+    # ---- Arranger ----
     apps/AIDAW/Source/ui/TopBar.cpp
-
     apps/AIDAW/Source/ui/Models.h
     apps/AIDAW/Source/ui/ThumbCache.h
     apps/AIDAW/Source/ui/ClipComponent.h
@@ -31,6 +31,11 @@ target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/ui/ArrangerCanvas.cpp
     apps/AIDAW/Source/ui/Arranger.h
     apps/AIDAW/Source/ui/Arranger.cpp
+
+    # ---- MIDI Editor ----
+    apps/AIDAW/Source/ui/MidiEditor.h
+    apps/AIDAW/Source/ui/MidiEditor.cpp
+    apps/AIDAW/Source/ui/Theme.h
 )
 
 target_compile_definitions(AIDAW PRIVATE
