@@ -1,7 +1,9 @@
 #pragma once
 #include <JuceHeader.h>
 
-// Unified theme for Arranger + MIDI Editor
+// ===== NEO-NOIR AURORA THEME =====
+// Deep charcoal canvas, subtle blue-tinted grid,
+// luminous cyan/mint accents, punchier note chips.
 struct Theme
 {
     // ---- Layout ----
@@ -10,58 +12,58 @@ struct Theme
     static constexpr int rowHeight  = 26;
     static constexpr int velocityH  = 70;
 
-    // ---- Backgrounds ----
-    static constexpr uint32 colBgMain    = 0xFF1E2430; // deep slate
-    static constexpr uint32 colBgPanel   = 0xFF232B38;
-    static constexpr uint32 colBgRuler   = 0xFF202734;
+    // ---- Backgrounds (much darker) ----
+    static constexpr uint32 colBgMain   = 0xFF0C1016; // near-black slate
+    static constexpr uint32 colBgPanel  = 0xFF0E141C; // toolbars/side
+    static constexpr uint32 colBgRuler  = 0xFF0A0F15; // top ruler band
 
-    // ---- Lines / grid
-    static constexpr uint32 colHeaderDiv = 0x224A586E; // key-edge divider
-    static constexpr uint32 colGridBar   = 0x66FFFFFF; // bar lines
-    static constexpr uint32 colGridBeat  = 0x22FFFFFF; // beats
-    static constexpr uint32 colGridSub   = 0x10FFFFFF; // subdivisions
-    static constexpr uint32 colOctave    = 0x2CFFFFFF; // octave accent (thin)
-    static constexpr uint32 colBarTick   = 0x55FFFFFF; // top tick marks in ruler
+    // ---- Grid lines (blue-tinted, higher contrast at bars) ----
+    static constexpr uint32 colHeaderDiv = 0x22344A62;
+    static constexpr uint32 colGridBar   = 0x5538E0FF; // cyan-blue bars
+    static constexpr uint32 colGridBeat  = 0x1A38E0FF; // beats
+    static constexpr uint32 colGridSub   = 0x0D38E0FF; // subs
+    static constexpr uint32 colOctave    = 0x2038E0FF; // horizontal octave
 
-    // ---- MIDI row zebra (matches arranger darkness) ----
-    static constexpr uint32 colRowEven   = 0xFF2A3343;
-    static constexpr uint32 colRowOdd    = 0xFF262F3E;
+    // ---- Ruler ticks/labels ----
+    static constexpr uint32 colBarTick  = 0x66FFFFFF;
+    static constexpr uint32 colBarLabel = 0xD0EAF2FF;  // icy white
 
-    // ---- Piano keys (dark) ----
-    // white-keys become dark grey; black-keys become near black
-    static constexpr uint32 colKeyWhite  = 0xFF2B3341; // was light; now dark
-    static constexpr uint32 colKeyBlack  = 0xFF1D242E; // deeper for black keys
-    static constexpr uint32 colKeySep    = 0x29314252;
+    // ---- MIDI row zebra (very subtle) ----
+    static constexpr uint32 colRowEven  = 0xFF0F151D;
+    static constexpr uint32 colRowOdd   = 0xFF0B1118;
 
-    // ---- Text / labels ----
-    static constexpr uint32 colText      = 0xE6FFFFFF;
-    static constexpr uint32 colBarLabel  = 0xCCFFFFFF;
+    // ---- Piano keys (dark “white”, near-black “black”) ----
+    static constexpr uint32 colKeyWhite = 0xFF121925;
+    static constexpr uint32 colKeyBlack = 0xFF0A0F15;
+    static constexpr uint32 colKeySep   = 0x29324352;
 
-    // ---- Accents ----
-    static constexpr uint32 colPlayhead  = 0xFF4CB8FF;
-    static constexpr uint32 colLoop      = 0xFF4CB8FF;
-    static constexpr uint32 colLoopFill  = 0x144CB8FF;
-    static constexpr uint32 colSelect    = 0x334CB8FF;  // marquee fill
-    static constexpr uint32 colSelectBd  = 0x884CB8FF;  // marquee border
+    // ---- Text ----
+    static constexpr uint32 colText     = 0xE6FFFFFF;
 
-    // ---- Notes ----
-    static constexpr uint32 colNoteA     = 0xFF6E86FF; // indigo
-    static constexpr uint32 colNoteB     = 0xFFB47CFF; // violet
+    // ---- Accents (neon cyan / mint) ----
+    static constexpr uint32 colPlayhead = 0xFF3CE0FF;  // bright cyan line
+    static constexpr uint32 colLoop     = 0xFF3CE0FF;
+    static constexpr uint32 colLoopFill = 0x143CE0FF;
+    static constexpr uint32 colSelect   = 0x3329FFC1;  // mint-teal wash
+    static constexpr uint32 colSelectBd = 0x8829FFC1;
+
+    // ---- Notes (luminous pills) ----
+    static constexpr uint32 colNoteA       = 0xFF59F3C3; // mint
+    static constexpr uint32 colNoteB       = 0xFF7AA7FF; // periwinkle
     static constexpr float  noteBorderGain = 0.40f;
 
     // ---- Velocity lane ----
-    static constexpr uint32 colVelLane   = 0xFF242E3B;
+    static constexpr uint32 colVelLane  = 0xFF0B1118;
 
-    // ---- Buttons (parity with Arranger) ----
-    static constexpr uint32 colBtnIdle   = 0xFF232B38;
-    static constexpr uint32 colBtnActive = 0xFF1C1F26;
-    static constexpr uint32 colBtnText   = 0xE6FFFFFF;
+    // ---- Buttons ----
+    static constexpr uint32 colBtnIdle  = 0xFF111923;
+    static constexpr uint32 colBtnActive= 0xFF0D131B;
+    static constexpr uint32 colBtnText  = 0xE6FFFFFF;
 
-    // ---- Helpers ----
+    // ---- Helpers (unchanged) ----
     static inline int    xFromBeats(double beats, double ppb, int x0) { return x0 + (int)std::round(beats * ppb); }
     static inline double beatsFromX(int x, double ppb, int x0)        { return juce::jmax(0, x - x0) / ppb; }
 
-    // Show fewer subs unless zoomed in
     static inline int subDivisions(double ppb)
     {
         if (ppb >= 360.0) return 8;   // 1/8
@@ -69,7 +71,6 @@ struct Theme
         if (ppb >= 160.0) return 2;   // 1/2
         return 0;
     }
-
     static inline double snapQuantumBeats(double ppb, bool snap)
     {
         if (!snap) return 0.0;
