@@ -6,6 +6,8 @@
 #include "ui/Arranger.h"
 #include "ui/MidiEditor.h"
 #include "ui/MixerComponent.h"
+#include "ui/LoopsModal.h"   // NEW
+#include "ui/LoopsModal.h"   // includes LoopsRegistry as well
 
 /* ============================================================
    TimelineAudioSource  (unchanged)
@@ -309,7 +311,7 @@ public:
             resized(); // keep bounds right
         };
 
-        // --- Loop wiring from MIDI editor (SHIFT-drag on ruler) ---
+        // --- Loop wiring from MIDI editor (drag on ruler) ---
         midi.setLoopEnabled(true);
         midi.setLoopRegion(loopStartBeats, loopLengthBeats);
         midi.onLoopChanged = [this](double start, double len)
@@ -317,6 +319,29 @@ public:
             loopStartBeats  = juce::jmax(0.0, start);
             loopLengthBeats = juce::jmax(0.0, len);
             loopEnabled     = (loopLengthBeats > 0.0);
+        };
+
+        // --- NEW: Loops modal wiring ---
+        midi.onShowLoops = [this]()
+        {
+            LoopsModal::Callbacks cb;
+            cb.onCreate = [this](uint32 loopId)
+            {
+                // TODO: create a Pattern + drop an instance on the timeline at playhead
+                juce::Logger::writeToLog("Created loop id=" + juce::String(loopId));
+            };
+            cb.onOpenLoop = [this](uint32 loopId)
+            {
+                // TODO: load that loop’s notes into MIDI editor (once patterns are defined)
+                juce::ignoreUnused(loopId);
+                juce::Logger::writeToLog("Open loop id=" + juce::String(loopId));
+            };
+            cb.onDelete = [this](uint32 loopId)
+            {
+                // TODO: remove pattern/instances if needed later
+                juce::Logger::writeToLog("Deleted loop id=" + juce::String(loopId));
+            };
+            LoopsModal::show(this, cb);
         };
 
         setWantsKeyboardFocus(true);

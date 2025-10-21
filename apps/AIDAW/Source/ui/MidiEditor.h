@@ -47,6 +47,9 @@ public:
     // callback when loop changed by user (start, length)
     std::function<void(double, double)> onLoopChanged;
 
+    // called by toolbar "Loops" button
+    std::function<void()> onShowLoops;
+
     enum class Tool { Select = 0, Draw = 1, Zoom = 2 };
     void setTool(Tool t);
 
@@ -58,6 +61,9 @@ public:
 
     // Expose Frame All for child
     void frameAllView(); // calls private frameAll()
+
+    // expose for MainComponent
+    void setLoopEnabledInternal(bool on) { loopEnabled = on; }
 
 private:
     // ===== Content =====
@@ -104,7 +110,7 @@ private:
 
         // public utility for parent
         void zoomToRect(juce::Rectangle<int> rect);
-        void restoreZoom(); // now calls parent->frameAllView()
+        void restoreZoom(); // calls parent->frameAllView()
 
         // for parent viewport control
         juce::Point<int> getParentViewportPos() const;
@@ -252,11 +258,7 @@ private:
 
     // UI
     juce::Viewport view;
-    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn;
+    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoops;
 
     Tool tool { Tool::Select };
-
-public:
-    // expose for MainComponent
-    void setLoopEnabledInternal(bool on) { loopEnabled = on; }
 };
