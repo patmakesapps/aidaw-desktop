@@ -12,7 +12,7 @@ MidiEditor::MidiEditor()
 
     btnSelect  .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"⬚"))); btnSelect.setTooltip ("Select / Move (1)");
     btnDraw    .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"✎"))); btnDraw.setTooltip   ("Draw (2)");
-    btnZoomTool.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"🔍"))); btnZoomTool.setTooltip("Zoom tool (4): L-drag=box, Right=restore");
+    btnZoomTool.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"🔍"))); btnZoomTool.setTooltip("Zoom tool (4): L-drag=box, Right=Frame All");
     btnFrameAll.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"◰"))); btnFrameAll.setTooltip("Frame all (F)");
     btnSnap    .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"⛓"))); btnSnap.setTooltip   ("Snap (G)");
     btnZoomOut .setButtonText("-");                                                           btnZoomOut.setTooltip("Zoom out (-)");
@@ -124,6 +124,10 @@ void MidiEditor::zoomAtContentX(double steps, int anchorXContent)
     const int maxX = juce::jmax(0, view.getViewedComponent()->getWidth() - view.getViewWidth());
     view.setViewPosition(juce::jlimit(0, maxX, view.getViewPositionX() + dx),
                          view.getViewPositionY());
+
+    // 👇 keep at least one note in focus after zoom
+    centerOnNearestNote(beat);
+
     repaint();
 }
 
@@ -137,7 +141,12 @@ void MidiEditor::frameAll()
     zoomScale     = pixelsPerBeat / (ppbAt120 * (120.0 / bpmValue));
     refreshContentSize();
     view.setViewPosition(0, view.getViewPositionY());
+
+    // also ensure a note is visible (for empty note lists, just stay at 0)
+    centerOnNearestNote(0.0);
 }
+
+void MidiEditor::frameAllView() { frameAll(); }
 
 void MidiEditor::setPitchView(int minPitchInclusive, int maxPitchInclusive)
 {
@@ -298,6 +307,40 @@ void MidiEditor::refreshContentSize()
     c->repaint();
 }
 
+void MidiEditor::centerOnNearestNote(double anchorBeat)
+{
+    auto* c = dynamic_cast<Content*>(view.getViewedComponent());
+    if (!c || notes.empty()) return;
+
+    // viewport in content coords
+    const auto vpX = view.getViewPositionX();
+    const auto vpW = view.getViewWidth();
+    const int left  = vpX;
+    const int right = vpX + vpW;
+
+    // compute horizontal bounds of notes
+    double minB = 1e9, maxB = -1e9;
+    for (const auto& n : notes)
+    {
+        minB = std::min(minB, n.startBeats);
+        maxB = std::max(maxB, n.startBeats + n.lengthBeats);
+    }
+    const int minX = Theme::keyWidth + (int)std::round(minB * pixelsPerBeat);
+    const int maxX = Theme::keyWidth + (int)std::round(maxB * pixelsPerBeat);
+
+    const bool intersects = !(right < minX || left > maxX);
+    if (intersects) return;
+
+    // find nearest beat to anchor
+    double targetBeat = minB;
+    if (anchorBeat < minB) targetBeat = minB;
+    else if (anchorBeat > maxB) targetBeat = maxB;
+    else targetBeat = anchorBeat;
+
+    const int targetX = Theme::keyWidth + (int)std::round(targetBeat * pixelsPerBeat);
+    c->centerContentOn(targetX, Theme::rulerH + c->gridHeight()/2);
+}
+
 /* ============================================================
    Content
    ============================================================ */
@@ -338,11 +381,11 @@ void MidiEditor::Content::syncNoteComponents()
 
         noteComps[i]->setBounds(x, y, w, h);
 
-        const bool sel = selection.contains((int)i);
+        const bool sel = false; // visual selection handled by rim highlight logic below if needed
         const auto body = juce::Colour((i % 2 == 0) ? Theme::colNoteA : Theme::colNoteB)
                             .withMultipliedBrightness(sel ? 1.10f : 1.0f);
         const auto rim  = juce::Colour(body).brighter(Theme::noteBorderGain);
-        noteComps[i]->setSelected(sel);
+        noteComps[i]->setSelected(false);
         noteComps[i]->setColors(juce::Colour(body).darker(0.30f), rim);
     }
 }
@@ -396,7 +439,7 @@ void MidiEditor::Content::paintRuler(juce::Graphics& g)
         g.fillRect(xs, 0, 2, Theme::rulerH);
         g.fillRect(xe-2, 0, 2, Theme::rulerH);
 
-        // glow handles (replace triangles)
+        // handles
         auto handle = [&](int cx){
             juce::Rectangle<float> hf((float)cx - edgeW, 3.0f, (float)edgeW*2.0f, (float)Theme::rulerH - 6.0f);
             g.setColour(juce::Colour(Theme::colLoop).withAlpha(hoverOnLeftEdge || hoverOnRightEdge ? 0.9f : 0.6f));
@@ -535,10 +578,14 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         panActive = true; panStart = p; panViewStart = getParentViewportPos(); return;
     }
 
-    // Zoom tool: left = start marquee; right = restore
+    // Zoom tool: left = start marquee; right = Frame All
     if (activeTool == MidiEditor::Tool::Zoom)
     {
-        if (e.mods.isRightButtonDown()) { restoreZoom(); return; }
+        if (e.mods.isRightButtonDown())
+        {
+            if (auto* editor = findParentComponentOfClass<MidiEditor>()) editor->frameAllView();
+            return;
+        }
         selectionDragActive = true;
         marqueeActive = true;
         selStart = p;
@@ -546,26 +593,40 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         repaint(); return;
     }
 
-    // Right-button start: set eraser sweep active and do a precise hit
+    // Right-click delete EXACTLY ONE note under cursor (no sweep)
     if (e.mods.isRightButtonDown())
     {
-        rightEraseSweepActive = true;
-
-        // If clicked on a note component, NoteComponent will call erase by UID.
-        // If on empty grid, erase closest in this row near the cursor.
         const int idx = indexAtPointNoteArea(p);
         if (idx >= 0) { (*notes).erase(notes->begin() + idx); syncNoteComponents(); repaint(); }
         return;
     }
 
-    // Ruler: SHIFT = set loop
-    if (p.y < Theme::rulerH && e.mods.isShiftDown())
+    // Ruler: loop drag WITHOUT needing Shift
+    if (p.y < Theme::rulerH)
     {
-        loopDragMode = LoopDrag::Move; // default until we detect edge in mouseMove
-        loopStartAtDown = *loopStartBeats;
-        loopLenAtDown   = *loopLengthBeats;
-        selectionDragActive = false;
-        repaint(); return;
+        if (!(loopEnabled && *loopEnabled)) return;
+
+        const int xs = xFromBeats(*loopStartBeats);
+        const int xe = xFromBeats(*loopStartBeats + *loopLengthBeats);
+
+        const bool onLeft  = std::abs(p.x - xs) <= 6;
+        const bool onRight = std::abs(p.x - xe) <= 6;
+        const bool inBody  = (p.x > xs + 6 && p.x < xe - 6);
+
+        if (onLeft)       loopDragMode = LoopDrag::ResizeLeft;
+        else if (onRight) loopDragMode = LoopDrag::ResizeRight;
+        else if (inBody)  loopDragMode = LoopDrag::Move;
+        else              loopDragMode = LoopDrag::None;
+
+        if (loopDragMode != LoopDrag::None)
+        {
+            loopStartAtDown = *loopStartBeats;
+            loopLenAtDown   = *loopLengthBeats;
+            selectionDragActive = false;
+            repaint();
+            return;
+        }
+        // click on empty ruler area: no-op for now
     }
 
     // Velocity lane drag
@@ -589,7 +650,6 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         notes->push_back(n);
         createdIndex = (int)notes->size() - 1;
         creatingNote = true;
-        selection.clearQuick(); selection.add(createdIndex);
         syncNoteComponents(); repaint(); return;
     }
 
@@ -616,54 +676,8 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
         return;
     }
 
-    // Right-button erase sweep across grid
-    if (rightEraseSweepActive && e.mods.isRightButtonDown())
-    {
-        const int idx = indexAtPointNoteArea(p);
-        if (idx >= 0) { (*notes).erase(notes->begin() + idx); syncNoteComponents(); repaint(); }
-        return;
-    }
-
-    if (creatingNote && createdIndex >= 0 && createdIndex < (int)notes->size())
-    {
-        auto& n = (*notes)[(size_t)createdIndex];
-        double end = snapToGrid(beatsFromX(p.x));
-        if (end <= createdStartBeats) end = createdStartBeats + (snapQuantum() > 0 ? snapQuantum() : 0.25);
-        n.lengthBeats = juce::jmax(0.03125, end - createdStartBeats);
-        // allow vertical drag to move pitch while drawing
-        int rowDelta = (p.y - (Theme::rulerH + pitchToRow(n.pitch)*rowHeight + rowHeight/2)) / rowHeight;
-        n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, n.pitch - rowDelta);
-        syncNoteComponents(); repaint(); return;
-    }
-
-    if (selectionDragActive)
-    {
-        const int x0 = juce::jlimit(0, getWidth(), selStart.x);
-        const int y0 = juce::jlimit(0, getHeight(), selStart.y);
-        const int x1 = juce::jlimit(0, getWidth(), p.x);
-        const int y1 = juce::jlimit(0, getHeight(), p.y);
-        marquee = juce::Rectangle<int>::leftTopRightBottom(
-            juce::jmin(x0,x1), juce::jmin(y0,y1), juce::jmax(x0,x1), juce::jmax(y0,y1));
-
-        // live selection
-        juce::Array<int> newSel;
-        for (int i=0;i<(int)notes->size();++i)
-        {
-            auto& n = (*notes)[(size_t)i];
-            const int x   = xFromBeats(n.startBeats);
-            const int y   = Theme::rulerH + pitchToRow(n.pitch)*rowHeight + 3;
-            const int w   = juce::jmax(8, (int)std::round(n.lengthBeats * ppb()));
-            const int h   = rowHeight - 6;
-            if (marquee.intersects(juce::Rectangle<int>(x,y,w,h)))
-                newSel.add(i);
-        }
-        selection = newSel;
-        syncNoteComponents();
-        repaint(); return;
-    }
-
-    // Loop drag (SHIFT pressed at mouseDown -> mode set in mouseMove hover)
-    if (loopEnabled && *loopEnabled && e.mods.isShiftDown() && (loopDragMode != LoopDrag::None))
+    // Loop drag (no Shift required)
+    if (loopEnabled && *loopEnabled && (loopDragMode != LoopDrag::None))
     {
         const double startAtDown = loopStartAtDown;
         const double lenAtDown   = loopLenAtDown;
@@ -701,6 +715,44 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
         return;
     }
 
+    if (creatingNote && createdIndex >= 0 && createdIndex < (int)notes->size())
+    {
+        auto& n = (*notes)[(size_t)createdIndex];
+        double end = snapToGrid(beatsFromX(p.x));
+        if (end <= createdStartBeats) end = createdStartBeats + (snapQuantum() > 0 ? snapQuantum() : 0.25);
+        n.lengthBeats = juce::jmax(0.03125, end - createdStartBeats);
+        // allow vertical drag to move pitch while drawing
+        int rowDelta = (p.y - (Theme::rulerH + pitchToRow(n.pitch)*rowHeight + rowHeight/2)) / rowHeight;
+        n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, n.pitch - rowDelta);
+        syncNoteComponents(); repaint(); return;
+    }
+
+    if (selectionDragActive)
+    {
+        const int x0 = juce::jlimit(0, getWidth(), selStart.x);
+        const int y0 = juce::jlimit(0, getHeight(), selStart.y);
+        const int x1 = juce::jlimit(0, getWidth(), p.x);
+        const int y1 = juce::jlimit(0, getHeight(), p.y);
+        marquee = juce::Rectangle<int>::leftTopRightBottom(
+            juce::jmin(x0,x1), juce::jmin(y0,y1), juce::jmax(x0,x1), juce::jmax(y0,y1));
+
+        // live selection
+        juce::Array<int> newSel;
+        for (int i=0;i<(int)notes->size();++i)
+        {
+            auto& n = (*notes)[(size_t)i];
+            const int x   = xFromBeats(n.startBeats);
+            const int y   = Theme::rulerH + pitchToRow(n.pitch)*rowHeight + 3;
+            const int w   = juce::jmax(8, (int)std::round(n.lengthBeats * ppb()));
+            const int h   = rowHeight - 6;
+            if (marquee.intersects(juce::Rectangle<int>(x,y,w,h)))
+                newSel.add(i);
+        }
+        // visual selection is not persisted to components individually; we just repaint
+        (void)newSel;
+        repaint(); return;
+    }
+
     if (velDragActive)
     {
         if (velNearest < 0 || !notes) return;
@@ -726,9 +778,8 @@ void MidiEditor::Content::mouseUp(const juce::MouseEvent&)
     creatingNote = false;
     createdIndex = -1;
 
-    // reset loop + erase states
+    // reset loop drag state
     loopDragMode = LoopDrag::None;
-    rightEraseSweepActive = false;
 
     repaint();
 }
@@ -753,13 +804,9 @@ void MidiEditor::Content::mouseMove(const juce::MouseEvent& e)
         hoverOnRightEdge = onRight;
         hoverOnBody      = inBody;
 
-        if (e.mods.isShiftDown())
-        {
-            if (onLeft)  { loopDragMode = LoopDrag::ResizeLeft;  setMouseCursor(juce::MouseCursor::LeftRightResizeCursor); }
-            else if (onRight){ loopDragMode = LoopDrag::ResizeRight; setMouseCursor(juce::MouseCursor::LeftRightResizeCursor); }
-            else if (inBody){ loopDragMode = LoopDrag::Move; setMouseCursor(juce::MouseCursor::DraggingHandCursor); }
-            else { loopDragMode = LoopDrag::None; setMouseCursor(juce::MouseCursor::NormalCursor); }
-        }
+        if (onLeft || onRight) setMouseCursor(juce::MouseCursor::LeftRightResizeCursor);
+        else if (inBody)       setMouseCursor(juce::MouseCursor::DraggingHandCursor);
+        else                   setMouseCursor(juce::MouseCursor::NormalCursor);
     }
     repaint();
 }
@@ -767,65 +814,17 @@ void MidiEditor::Content::mouseMove(const juce::MouseEvent& e)
 bool MidiEditor::Content::keyPressed (const juce::KeyPress& key)
 {
     if (!notes) return false;
-    const bool ctrl = key.getModifiers().isCommandDown();
-    const bool alt  = key.getModifiers().isAltDown();
 
-    auto q     = snapQuantum();
-    auto small = (q > 0.0 ? q : 0.25);
-
+    // only delete the focused/nearest note to the mouse X when Delete is pressed, not all selected
     if (key.getKeyCode() == juce::KeyPress::deleteKey)
     {
-        if (!selection.isEmpty())
-        {
-            std::vector<int> idx(selection.begin(), selection.end());
-            std::sort(idx.begin(), idx.end()); std::reverse(idx.begin(), idx.end());
-            for (int i : idx) if (i >= 0 && i < (int)notes->size())
-                notes->erase(notes->begin() + i);
-            selection.clearQuick(); syncNoteComponents(); repaint(); return true;
-        }
+        // heuristic: delete closest to viewport center
+        const int vpX = getParentViewportPos().x;
+        const int vpW = getParentViewportW();
+        const int centerX = vpX + vpW/2;
+        const int idx = closestNoteToX(centerX);
+        if (idx >= 0) { notes->erase(notes->begin() + idx); syncNoteComponents(); repaint(); return true; }
     }
-
-    if (ctrl && (key.getTextCharacter() == 'q' || key.getTextCharacter() == 'Q'))
-    {
-        if (selection.isEmpty()) return true;
-        const double quantum = (q > 0.0 ? q : 1.0);
-        for (int i=0;i<selection.size();++i)
-        {
-            auto& n = (*notes)[(size_t)selection[i]];
-            n.startBeats  = std::round(n.startBeats / quantum) * quantum;
-            n.lengthBeats = juce::jmax(quantum, std::round(n.lengthBeats / quantum) * quantum);
-        }
-        syncNoteComponents(); repaint(); return true;
-    }
-
-    if (!selection.isEmpty())
-    {
-        if (key.getKeyCode() == juce::KeyPress::leftKey)
-        {
-            for (int i=0;i<selection.size();++i)
-                (*notes)[(size_t)selection[i]].startBeats = juce::jmax(0.0, (*notes)[(size_t)selection[i]].startBeats - (alt ? 0.25 : small));
-            syncNoteComponents(); repaint(); return true;
-        }
-        if (key.getKeyCode() == juce::KeyPress::rightKey)
-        {
-            for (int i=0;i<selection.size();++i)
-                (*notes)[(size_t)selection[i]].startBeats += (alt ? 0.25 : small);
-            syncNoteComponents(); repaint(); return true;
-        }
-        if (key.getKeyCode() == juce::KeyPress::upKey)
-        {
-            for (int i=0;i<selection.size();++i)
-                (*notes)[(size_t)selection[i]].pitch = juce::jmin(127, (*notes)[(size_t)selection[i]].pitch + 1);
-            syncNoteComponents(); repaint(); return true;
-        }
-        if (key.getKeyCode() == juce::KeyPress::downKey)
-        {
-            for (int i=0;i<selection.size();++i)
-                (*notes)[(size_t)selection[i]].pitch = juce::jmax(0, (*notes)[(size_t)selection[i]].pitch - 1);
-            syncNoteComponents(); repaint(); return true;
-        }
-    }
-
     return false;
 }
 
@@ -900,17 +899,22 @@ int MidiEditor::Content::indexAtPointNoteArea(juce::Point<int> p) const
 
 void MidiEditor::Content::zoomToRect(juce::Rectangle<int> rect)
 {
-    if (!onLayoutRequest) return;
+    if (!onLayoutRequest || !pixelsPerBeat) return;
     const int viewportW = juce::jmax(1, getParentViewportW() - Theme::keyWidth - 32);
     const int selW      = juce::jmax(1, rect.getWidth());
     const double targetPPB = juce::jlimit(24.0, 4096.0, (double)viewportW / (double)selW * ppb());
     *pixelsPerBeat = targetPPB;
     onLayoutRequest();
     centerContentOn(rect.getCentreX(), rect.getCentreY());
+
+    // keep at least one note in view
+    const double anchorBeat = beatsFromX(rect.getCentreX());
+    ensureViewportShowsNotesNearBeat(anchorBeat);
 }
 void MidiEditor::Content::restoreZoom()
 {
-    centerContentOn(Theme::keyWidth + getWidth()/2, getHeight()/2);
+    // Now behaves as Frame All
+    if (auto* editor = findParentComponentOfClass<MidiEditor>()) editor->frameAllView();
 }
 juce::Point<int> MidiEditor::Content::getParentViewportPos() const
 {
@@ -942,6 +946,33 @@ void MidiEditor::Content::centerContentOn(int x, int y)
         vp->setViewPosition(juce::jlimit(0, maxX, targetX),
                             juce::jlimit(0, maxY, targetY));
     }
+}
+
+void MidiEditor::Content::ensureViewportShowsNotesNearBeat(double anchorBeatIfNeeded)
+{
+    if (!notes || notes->empty()) return;
+    const int vpX = getParentViewportPos().x;
+    const int vpW = getParentViewportW();
+    const int left  = vpX;
+    const int right = vpX + vpW;
+
+    double minB = 1e9, maxB = -1e9;
+    for (const auto& n : *notes)
+    {
+        minB = std::min(minB, n.startBeats);
+        maxB = std::max(maxB, n.startBeats + n.lengthBeats);
+    }
+    const int minX = Theme::keyWidth + (int)std::round(minB * ppb());
+    const int maxX = Theme::keyWidth + (int)std::round(maxB * ppb());
+    const bool intersects = !(right < minX || left > maxX);
+    if (intersects) return;
+
+    const double targetBeat =
+        (anchorBeatIfNeeded < minB) ? minB :
+        (anchorBeatIfNeeded > maxB) ? maxB : anchorBeatIfNeeded;
+
+    const int targetX = Theme::keyWidth + (int)std::round(targetBeat * ppb());
+    centerContentOn(targetX, Theme::rulerH + gridHeight()/2);
 }
 
 // ==== NoteComponent ====
@@ -988,7 +1019,7 @@ void MidiEditor::Content::NoteComponent::mouseDown (const juce::MouseEvent& e)
 }
 void MidiEditor::Content::NoteComponent::mouseDrag (const juce::MouseEvent& e)
 {
-    if (e.mods.isRightButtonDown()) { if (onRightEraseCB) onRightEraseCB(noteId); return; }
+    if (e.mods.isRightButtonDown()) return; // prevent sweep delete while dragging
     if (onMouseDragCB) onMouseDragCB(noteId, e.getEventRelativeTo(getParentComponent()).getPosition());
 }
 void MidiEditor::Content::NoteComponent::mouseUp (const juce::MouseEvent& e)
@@ -1003,7 +1034,11 @@ void MidiEditor::Content::handleNoteMouseDown(uint32 uid, juce::Point<int> pInCo
     const int idx = noteIndexByUid(uid);
     if (idx < 0) return;
 
-    if (!selection.contains(idx)) { selection.clearQuick(); selection.add(idx); didSelect = true; }
+    // “single focus” behavior: no multi-select for now (helps Delete-one behavior)
+    selection.clearQuick();
+    selection.add(idx);
+    didSelect = true;
+
     dragAnchorContent = pInContent;
 
     // snapshot selection

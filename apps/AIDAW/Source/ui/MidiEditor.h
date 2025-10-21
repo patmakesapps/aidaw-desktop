@@ -56,6 +56,9 @@ public:
     bool keyPressed(const juce::KeyPress& key) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
+    // Expose Frame All for child
+    void frameAllView(); // calls private frameAll()
+
 private:
     // ===== Content =====
     class Content : public juce::Component
@@ -101,7 +104,7 @@ private:
 
         // public utility for parent
         void zoomToRect(juce::Rectangle<int> rect);
-        void restoreZoom();
+        void restoreZoom(); // now calls parent->frameAllView()
 
         // for parent viewport control
         juce::Point<int> getParentViewportPos() const;
@@ -111,6 +114,9 @@ private:
 
         // injected by parent to extend content width lazily
         std::function<void(int)> extendToPixelRight;
+
+        // ensure that after zoom, view contains at least one note
+        void ensureViewportShowsNotesNearBeat(double anchorBeatIfNeeded);
 
     private:
         // visuals
@@ -208,9 +214,6 @@ private:
         bool     hoverOnRightEdge { false };
         bool     hoverOnBody      { false };
 
-        // ===== right-click eraser sweep =====
-        bool rightEraseSweepActive { false };
-
         // components for each note
         std::vector<std::unique_ptr<NoteComponent>> noteComps;
     };
@@ -219,6 +222,7 @@ private:
     void refreshContentSize();
     void frameAll();
     void zoomAtContentX(double steps, int anchorXContent);
+    void centerOnNearestNote(double anchorBeat);
 
     // JUCE
     void buttonClicked(juce::Button* b) override;
@@ -251,9 +255,6 @@ private:
     juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn;
 
     Tool tool { Tool::Select };
-
-    // content-visible adapters
-    void setContentCursors();
 
 public:
     // expose for MainComponent
