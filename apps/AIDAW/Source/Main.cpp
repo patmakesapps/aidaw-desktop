@@ -6,8 +6,7 @@
 #include "ui/Arranger.h"
 #include "ui/MidiEditor.h"
 #include "ui/MixerComponent.h"
-#include "ui/LoopsModal.h"   // NEW
-#include "ui/LoopsModal.h"   // includes LoopsRegistry as well
+#include "ui/LoopsModal.h"   // single include (no duplicate)
 
 /* ============================================================
    TimelineAudioSource  (unchanged)
@@ -321,28 +320,33 @@ public:
             loopEnabled     = (loopLengthBeats > 0.0);
         };
 
-        // --- NEW: Loops modal wiring ---
-        midi.onShowLoops = [this]()
+        // --- Loops modal wiring (shared for MIDI + Arranger) ---
+        auto openLoops = [this]()
         {
             LoopsModal::Callbacks cb;
-            cb.onCreate = [this](uint32 loopId)
+            cb.onCreate   = [this](uint32 loopId)
             {
-                // TODO: create a Pattern + drop an instance on the timeline at playhead
+                // TODO: create a new loop pattern + drop an instance on the timeline at playhead
                 juce::Logger::writeToLog("Created loop id=" + juce::String(loopId));
             };
             cb.onOpenLoop = [this](uint32 loopId)
             {
-                // TODO: load that loop’s notes into MIDI editor (once patterns are defined)
+                // TODO: load pattern into MIDI editor for editing
                 juce::ignoreUnused(loopId);
                 juce::Logger::writeToLog("Open loop id=" + juce::String(loopId));
             };
-            cb.onDelete = [this](uint32 loopId)
+            cb.onDelete   = [this](uint32 loopId)
             {
-                // TODO: remove pattern/instances if needed later
+                // TODO: delete loop/pattern if needed
                 juce::Logger::writeToLog("Deleted loop id=" + juce::String(loopId));
             };
+
             LoopsModal::show(this, cb);
         };
+
+        // Hook both entry points
+        midi.onShowLoops        = openLoops;     // existing MIDI entry
+        arranger.onLoopsClicked = openLoops;     // NEW Arranger toolbar button
 
         setWantsKeyboardFocus(true);
         setSize(1200, 720);

@@ -23,6 +23,9 @@ public:
     std::function<void()>        onPlayPressed;
     std::function<void()>        onStopPressed;
 
+    // NEW: open the Loops modal from the Arranger toolbar
+    std::function<void()>        onLoopsClicked;
+
     void setBPM(double bpm);
     void setSnap(bool on);
     void setTool(ArrangerTool t);
@@ -60,6 +63,10 @@ private:
 
     // tools
     juce::TextButton btnPointer, btnSlice, btnResize, btnZoomTool, btnFrameAll, btnSnap, btnZoomIn, btnZoomOut;
+
+    // NEW: Loops button on the Arranger toolbar
+    juce::TextButton btnLoops { "Loops" };
+
     ArrangerTool tool { ArrangerTool::Pointer };
     juce::Colour activeCol = juce::Colour(0xFF3B82F6), idleCol = juce::Colour(0xFF2A2A2A);
 
@@ -97,9 +104,6 @@ private:
     int startLaneIndex { -1 }, targetLaneIndex { -1 };
 
     bool pasteArm = false; // arm quick-paste when clicking empty lanes
-
-
-
 
     // Smooth-drag preview (no model writes until mouseUp)
     double pendingMoveStartBeats { 0.0 };
