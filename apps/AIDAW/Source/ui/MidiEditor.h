@@ -1,20 +1,21 @@
 #pragma once
-#include <JuceHeader.h>
-#include <functional>
-#include <optional>
+#include <juce_gui_basics/juce_gui_basics.h>
 #include <vector>
+#include <functional>
 #include <algorithm>
+#include <cmath>
 #include "Theme.h"
 
-/*** Model ***/
+// ===== Model =====
 struct MidiNote
 {
-    int    pitch = 60;
-    double startBeats = 0.0;
-    double lengthBeats = 1.0;
-    int    velocity = 100;
+    int    pitch        = 60;
+    double startBeats   = 0.0;
+    double lengthBeats  = 1.0;
+    int    velocity     = 96;
 };
 
+// ===== MidiEditor =====
 class MidiEditor : public juce::Component,
                    private juce::Button::Listener
 {
@@ -22,221 +23,242 @@ public:
     MidiEditor();
     ~MidiEditor() override = default;
 
-    // External API
+    enum class Tool { Select, Draw, Zoom };
+
+    // ---- External callbacks ----
+    // Fired whenever loop is changed via UI or set programmatically here.
+    std::function<void(double /*loopStart*/, double /*loopLength*/)> onLoopChanged;
+
+    // Model API
     void setNotes(const std::vector<MidiNote>& newNotes);
     std::vector<MidiNote>& editNotes();
+    const std::vector<MidiNote>& getNotes() const;
 
+    // Transport / View
     void setBPM(double bpm);
     void setSnap(bool on);
-
     void setHorizontalZoom(double beatsPerScreen);
-    void zoomAtContentX(double steps, int anchorXContent);
     void frameAll();
-
     void setPitchView(int minPitchInclusive, int maxPitchInclusive);
     void autoFitPitchToNotes();
     void setAutoFitPitchOnSet(bool on);
-
     void setBeatsExtent(double beats);
-    void autoFitBeatsToNotes(double padBeats = 4.0);
+    void autoFitBeatsToNotes(double padBeats);
     void setAutoFitBeatsOnSet(bool on);
-
     void setPlayheadBeats(double beats);
     void setLoopEnabled(bool on);
-    void setLoopRegion(double s, double len);
-    std::function<void(double,double)> onLoopChanged;
+    void setLoopRegion(double startBeats, double lengthBeats);
 
-    const std::vector<MidiNote>& getNotes() const;
+    // Loop accessors (optional external sync)
+    bool   isLoopEnabled() const { return loopEnabled; }
+    double loopStart()     const { return loopStartBeats; }
+    double loopLength()    const { return loopLengthBeats; }
 
-    // Mouse wheel zoom anchor
-    void zoomDeltaFromWheel(double wheelDelta, int screenX);
+    // Ctrl+wheel zoom support (anchor at screen X like your Arranger)
+    void zoomDeltaFromWheel(double delta, int screenX);
 
-    // JUCE
-    void paint(juce::Graphics& g) override;
+    // Component overrides
+    void paint(juce::Graphics&) override;
     void resized() override;
-    bool keyPressed (const juce::KeyPress& key) override;
-    void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+    bool keyPressed(const juce::KeyPress& key) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
-    enum class Tool { Select, Draw, Zoom };
-    void setTool(Tool t);
-
-    // Buttons
-    void buttonClicked(juce::Button* b) override;
-
-    // ---------- Inner content ----------
+    // ===== Content =====
     class Content : public juce::Component
     {
     public:
-        // State refs
-        std::vector<MidiNote>* notes = nullptr;
-        bool*   snapToGridRef   = nullptr;
-        double* pixelsPerBeat   = nullptr;
-        double* playheadBeats   = nullptr;
-        bool*   loopEnabled     = nullptr;
-        double* loopStartBeats  = nullptr;
-        double* loopLengthBeats = nullptr;
-
-        // Bridges
-        std::function<void()>                     requestRepaint;
-        std::function<void(juce::Rectangle<int>)> ensureVisible;
-        std::function<int()>                      getViewportWidth;
-        std::function<void(int)>                  extendToPixelRight;
-        std::function<void()>                     onLayoutRequest;
-
-        // Layout
-        int   totalRows = 37;
-        int   rowHeight = Theme::rowHeight;
-        int   topPitch  = 84;
-
-        // Tool
-        MidiEditor::Tool activeTool { MidiEditor::Tool::Select };
-
-        // Selection
-        juce::Array<int> selection;
-
-        // Constructor/behaviour
         Content();
+
+        // wired to the editor (parent) immediately after creation
+        std::function<void()>                         requestRepaint;
+        std::function<void(juce::Rectangle<int>)>     ensureVisible;
+        std::function<void(int)>                      extendToPixelRight; // optional, can be nullptr
+        std::function<void()>                         onRequestFrameAll;   // for zoom reset
+
+        // references to editor state
+        std::vector<MidiNote>* notes           = nullptr;
+        bool*   snapToGridRef                  = nullptr;
+        double* pixelsPerBeat                  = nullptr;
+        double* playheadBeats                  = nullptr;
+        bool*   loopEnabled                    = nullptr;
+        double* loopStartBeats                 = nullptr;
+        double* loopLengthBeats                = nullptr;
+
+        // editor tool
+        MidiEditor::Tool activeTool = MidiEditor::Tool::Select;
+
+        // layout info (owned by content)
+        int rowHeight = Theme::rowHeight;
+        int totalRows = 60;
+        int topPitch  = 84;
+
+        // core API
         void syncNoteComponents();
+        void repaintNotesOnly();
 
-        // Drawing
-        void paint(juce::Graphics& g) override;
-        void paintRuler(juce::Graphics& g);
-        void paintKeys(juce::Graphics& g);
-        void paintGrid(juce::Graphics& g);
-        void paintLoopOverlay(juce::Graphics& g);
-        void paintVelocities(juce::Graphics& g);
-        void paintPlayhead(juce::Graphics& g);
-
-        // Interaction
+        // Component
+        void paint(juce::Graphics&) override;
+        void resized() override;
+        bool keyPressed (const juce::KeyPress& key) override;
         void mouseDown(const juce::MouseEvent& e) override;
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseUp  (const juce::MouseEvent& e) override;
-        bool keyPressed (const juce::KeyPress& key) override;
-        void resized() override;
 
-        // Helpers
+        // helpers
         double ppb() const;
         int    gridHeight() const;
         double beatsFromX(int xContent) const;
         int    xFromBeats(double beats) const;
         int    pitchToRow(int pitch) const;
         int    rowToPitch(int row) const;
-
         double snapQuantum() const;
         double snapToGrid(double beats) const;
         int    closestNoteToX(int x) const;
-
-        // Zoom helpers
-        void zoomToRect(juce::Rectangle<int> rect);
-        void restoreZoom();
-        void centerContentOn(int cx, int cy);
+        void   zoomToRect(juce::Rectangle<int> rect);
+        void   restoreZoom();
         juce::Point<int> getParentViewportPos() const;
-        int getParentViewportW() const;
-        void setParentViewportPos(juce::Point<int> p);
+        int    getParentViewportW() const;
+        void   setParentViewportPos(juce::Point<int> p);
+        void   centerContentOn(int x, int y);
 
-        // Note interaction hooks used by NoteComponent
-        void handleNoteMouseDown(int idx, juce::Point<int> pInContent, bool& didSelect, int& hitEdge);
-        void handleNoteMouseDrag(int idx, juce::Point<int> pInContent);
-        void handleNoteMouseUp  (int idx);
-        void eraseNote(int idx);
+        // selection
+        juce::Array<int> selection;
 
-        // edge hit test: 1 left | 2 right | 0 body
-        int hitEdgeAt(int idx, juce::Point<int> p) const;
+        // state for marquee and panning etc.
+        bool  marqueeActive       = false;
+        bool  selectionDragActive = false;
+        bool  additiveMarquee     = false;
+        juce::Point<int> selStart {0,0};
+        juce::Array<int> preMarqueeSelection;
 
-        // Custom note component
-        class NoteComponent : public juce::Component
+        bool  panActive           = false;
+        juce::Point<int> panStart {0,0};
+        juce::Point<int> panViewStart {0,0};
+
+        // right-click erase should not nuke multiple: keep scoped
+        int lastFocusedIndex = -1;
+
+        // Loop editing
+        enum class LoopDrag { None, Move, ResizeLeft, ResizeRight };
+        LoopDrag loopDragMode = LoopDrag::None;
+        bool     loopDragActive = false;
+        double   loopStartAtDown = 0.0;
+        double   loopLenAtDown   = 0.0;
+
+        // drawing note state
+        bool creatingNote = false;
+        int  createdIndex = -1;
+        double createdStartBeats = 0.0;
+
+        // velocity editing
+        bool velDragActive = false;
+        int  velNearest    = -1;
+
+        // snap bypass with Alt
+        bool bypassSnap = false;
+
+        // drag snapshot for moving/resize notes
+        juce::Point<int> dragAnchorContent {0,0};
+        juce::Array<double> startAtDown, lenAtDown;
+        juce::Array<int>    pitchAtDown;
+
+        // zoom memory (for potential future use)
+        juce::Rectangle<int> lastZoomRect {0,0,0,0};
+
+        // note component
+        struct NoteComponent : public juce::Component
         {
-        public:
             NoteComponent(
                 int idx,
-                std::function<void(int, juce::Point<int>, bool& didSelect, int& hitEdge)> onDown,
-                std::function<void(int, juce::Point<int>)> onDrag,
-                std::function<void(int)> onUp,
-                std::function<void(int)> onRightErase);
+                std::function<void(int, juce::Point<int>, bool&, int&)> onDown,
+                std::function<void(int, juce::Point<int>)>              onDrag,
+                std::function<void(int)>                                 onUp,
+                std::function<void(int)>                                 onRightErase);
 
+            int index = -1;
             void setSelected(bool s);
             void setColors(juce::Colour body, juce::Colour rim);
-            void paint(juce::Graphics& g) override;
+
+            void paint(juce::Graphics&) override;
             void mouseDown (const juce::MouseEvent& e) override;
             void mouseDrag (const juce::MouseEvent& e) override;
             void mouseUp   (const juce::MouseEvent& e) override;
 
-            int index = -1;
+            // hit-test result for edge (0 move, 1 left, 2 right)
             int hitEdge = 0;
 
         private:
             bool selected = false;
-            juce::Colour bodyCol { juce::Colours::mediumpurple };
-            juce::Colour rimCol  { juce::Colours::white };
+            juce::Colour bodyCol = juce::Colours::cornflowerblue;
+            juce::Colour rimCol  = juce::Colours::white;
 
             std::function<void(int, juce::Point<int>, bool&, int&)> onMouseDown;
             std::function<void(int, juce::Point<int>)>              onMouseDragCB;
-            std::function<void(int)>                                onMouseUpCB;
-            std::function<void(int)>                                onRightEraseCB;
+            std::function<void(int)>                                 onMouseUpCB;
+            std::function<void(int)>                                 onRightEraseCB;
         };
 
-        // Drag caches
-        juce::Array<double> startAtDown, lenAtDown;
-        juce::Array<int>    pitchAtDown;
-        juce::Point<int>    dragAnchorContent {0,0};
-
-        // States
-        bool bypassSnap { false };
-        bool panActive { false };
-        juce::Point<int> panStart {0,0}, panViewStart {0,0};
-        bool selectionDragActive { false };
-        juce::Point<int> selStart {0,0};
-        bool loopDragActive { false };
-        double loopStartAtDown { 0.0 };
-        bool velDragActive { false };
-        int  velNearest { -1 };
-        bool marqueeActive { false };
-        juce::Rectangle<int> marquee;
-
-        // --- Draw tool state ---
-        bool   creatingNote { false };
-        int    createdIndex { -1 };
-        double createdStartBeats { 0.0 };
-
         std::vector<std::unique_ptr<NoteComponent>> noteComps;
+
+        // note manipulation
+        void handleNoteMouseDown(int idx, juce::Point<int> pInContent, bool& didSelect, int& edge);
+        void handleNoteMouseDrag(int idx, juce::Point<int> pInContent);
+        void handleNoteMouseUp  (int idx);
+        void eraseNote(int idx);
+        int  hitEdgeAt(int idx, juce::Point<int> p) const;
     };
 
-    // View + data
-    juce::Viewport view;
-    std::vector<MidiNote> notes;
-
-    // toolbar
-    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn;
-    Tool tool { Tool::Select };
-
-    // grid/time
-    double bpmValue { 120.0 };
-    bool   snapToGrid { true };
-
-    // zoom mapping
-    double ppbAt120 { 64.0 };
-    double pixelsPerBeat { 64.0 };
-    double zoomScale { 1.0 };
-    static constexpr double minPPB = 24.0;
-    static constexpr double maxPPB = 1024.0;
-
-    // pitch window
-    int minPitch { 48 };
-    int maxPitch { 84 };
-
-    // content extent floor
-    double beatsExtent { 64.0 };
-
-    // auto-fit flags
-    bool autoFitPitchOnSet { true };
-    bool autoFitBeatsOnSet { true };
-
-    // playhead & loop
-    double playheadBeats { 0.0 };
-    bool   loopEnabled { false };
-    double loopStartBeats { 0.0 };
-    double loopLengthBeats { 0.0 };
+    // internal helpers
+    void setTool(Tool t);
+    void buttonClicked(juce::Button* b) override;
 
     void refreshContentSize();
+    void zoomAtContentX(double steps, int anchorXContent);
+
+    // UI
+    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn;
+    juce::Viewport   view;
+
+    // state
+    std::vector<MidiNote> notes;
+
+    // zoom/grid state
+    double bpmValue      = 120.0;
+    double ppbAt120      = 240.0; // pixels per beat at 120 BPM, base scale
+    double pixelsPerBeat = 240.0;
+    double zoomScale     = 1.0;
+    static constexpr double minPPB = 16.0;
+    static constexpr double maxPPB = 4096.0;
+
+    // pitch view
+    int minPitch = 48;
+    int maxPitch = 84;
+
+    // extent
+    double beatsExtent = 64.0;
+
+    // options
+    bool snapToGrid = true;
+    bool autoFitBeatsOnSet = false;
+    bool autoFitPitchOnSet = false;
+
+    // transport
+    double playheadBeats   = 0.0;
+    bool   loopEnabled     = false;
+    double loopStartBeats  = 0.0;
+    double loopLengthBeats = 0.0;
+
+    // tool
+    Tool tool = Tool::Select;
+
+    // content-extenders (wired into content)
+    std::function<void(int)> extendToPixelRight = [this](int px)
+    {
+        if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
+        {
+            if (px > c->getWidth())
+                c->setSize(px, c->getHeight());
+        }
+    };
 };
