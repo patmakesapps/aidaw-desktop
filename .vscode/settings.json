@@ -5,6 +5,7 @@
   "cmake.buildDirectory": "build/${buildType}",
   "cmake.installPrefix": "${workspaceFolder}/dist",
   "files.associations": {
-    "*.mm": "cpp"
+    "*.mm": "cpp",
+    "utility": "cpp"
   }
 }
