@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include <functional>
-#include "Models.h"
+#include "../shared/Models.h"
 
 class TrackLaneComponent : public juce::Component
 {

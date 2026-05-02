@@ -2,8 +2,8 @@
 #include <JuceHeader.h>
 
 // Make sure this is the header that DEFINES ArrangerTool
-#include "Models.h"
-#include "ThumbCache.h"
+#include "../shared/Models.h"
+#include "../shared/ThumbCache.h"
 
 
 class ClipComponent : public juce::Component,

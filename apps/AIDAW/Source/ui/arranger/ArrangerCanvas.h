@@ -1,8 +1,8 @@
 #pragma once
 #include <JuceHeader.h>
-#include "Models.h"
+#include "../shared/Models.h"
 #include "TrackLaneComponent.h"
-#include "Theme.h"
+#include "../shared/Theme.h"
 
 class ArrangerCanvas : public juce::Component
 {

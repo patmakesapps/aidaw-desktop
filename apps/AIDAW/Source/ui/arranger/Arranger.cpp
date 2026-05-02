@@ -1,4 +1,5 @@
 #include "Arranger.h"
+#include "ArrangerFileUtils.h"
 #include <algorithm>
 #include <cmath>
 
@@ -165,11 +166,11 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
         clip.id = juce::Uuid().toString();
         clip.file = f;
         clip.startBeats  = startBeats;
-        clip.lengthBeats = estimateBeatsFromFile(f, bpmValue);
+        clip.lengthBeats = ArrangerFileUtils::estimateBeatsFromFile(fm, f, bpmValue);
         clip.offsetBeats = 0.0;
 
         auto& lane = tracks[(size_t)laneIdx];
-        auto name = extractTrackNameFromAudio(f);
+        auto name = ArrangerFileUtils::extractTrackNameFromAudio(fm, f);
         lane.name = name.isNotEmpty() ? name : f.getFileNameWithoutExtension();
         lane.clips.push_back(std::move(clip));
         ++laneIdx;
@@ -1047,77 +1048,6 @@ void Arranger::moveClipToLane(ClipModel* cm, int fromLane, int toLane)
     if (onProjectChanged) onProjectChanged();
 }
 
-juce::String Arranger::extractTrackNameFromAudio(const juce::File& f)
-{
-    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
-    if (r)
-    {
-        auto& meta = r->metadataValues;
-        for (auto key : { "title", "artist", "name" })
-            if (meta.containsKey(key)) return meta[key];
-    }
-    return {};
-}
-
-double Arranger::estimateBeatsFromFile(const juce::File& f, double bpm)
-{
-    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
-    if (r && r->sampleRate > 0.0)
-    {
-        const double secs  = (double)r->lengthInSamples / r->sampleRate;
-        const double beats = (secs * bpm) / 60.0;
-        double bars = std::max(1.0, std::round(beats / 4.0));
-        return bars * 4.0;
-    }
-    return 16.0;
-}
-
-double Arranger::detectLoopBpm(const juce::File& f)
-{
-    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
-    if (r)
-    {
-        auto& meta = r->metadataValues;
-        for (auto key : { "tempo", "bpm", "BPM", "Tempo" })
-            if (meta.containsKey(key))
-            {
-                auto v = meta[key].retainCharacters("0123456789.");
-                auto d = v.getDoubleValue();
-                if (d > 20.0 && d < 300.0) return d;
-            }
-    }
-    auto name = f.getFileNameWithoutExtension().toLowerCase();
-    juce::String digits;
-    for (int i=0;i<name.length();++i)
-    {
-        const juce_wchar ch = name[i];
-        if (juce::CharacterFunctions::isDigit(ch) || ch == '.')
-            digits << juce::String::charToString(ch);
-        else
-        {
-            if (digits.length() >= 2)
-            {
-                double val = digits.getDoubleValue();
-                if (val > 20.0 && val < 300.0) return val;
-            }
-            digits.clear();
-        }
-    }
-    if (digits.isNotEmpty())
-    {
-        double val = digits.getDoubleValue();
-        if (val > 20.0 && val < 300.0) return val;
-    }
-    return 0.0;
-}
-
-double Arranger::secondsOfFile(const juce::File& f)
-{
-    std::unique_ptr<juce::AudioFormatReader> r(fm.createReaderFor(f));
-    if (r && r->sampleRate > 0.0) return (double) r->lengthInSamples / r->sampleRate;
-    return 0.0;
-}
-
 void Arranger::recomputeClipBeatLengthsForTempo()
 {
     for (auto& t : tracks)
@@ -1125,10 +1055,10 @@ void Arranger::recomputeClipBeatLengthsForTempo()
         {
             if (!c.file.existsAsFile()) continue;
 
-            const double secs = secondsOfFile(c.file);
+            const double secs = ArrangerFileUtils::secondsOfFile(fm, c.file);
             if (secs <= 0.0) continue;
 
-            double srcBpm = detectLoopBpm(c.file);
+            double srcBpm = ArrangerFileUtils::detectLoopBpm(fm, c.file);
             if (srcBpm <= 0.0) srcBpm = bpmValue;
 
             const double beats = (secs * srcBpm) / 60.0;

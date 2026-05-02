@@ -18,24 +18,52 @@ juce_add_gui_app(AIDAW
 target_sources(AIDAW PRIVATE
     # App entry
     apps/AIDAW/Source/Main.cpp
+    apps/AIDAW/Source/app/MainComponent.h
+    apps/AIDAW/Source/app/MainComponent.cpp
+    apps/AIDAW/Source/app/MainWindow.h
+    apps/AIDAW/Source/app/MainWindow.cpp
+
+    # ---- Audio Engine ----
+    apps/AIDAW/Source/audio/MetronomeSource.h
+    apps/AIDAW/Source/audio/MetronomeSource.cpp
+    apps/AIDAW/Source/audio/TimelineAudioSource.h
+    apps/AIDAW/Source/audio/TimelineAudioSource.cpp
+    apps/AIDAW/Source/audio/EddieSynth.h
+    apps/AIDAW/Source/audio/EddieSynth.cpp
+
+    # ---- UI Shell ----
+    apps/AIDAW/Source/ui/shell/TopBar.h
+    apps/AIDAW/Source/ui/shell/TopBar.cpp
+
+    # ---- Shared UI Models/Theme ----
+    apps/AIDAW/Source/ui/shared/Models.h
+    apps/AIDAW/Source/ui/shared/Theme.h
+    apps/AIDAW/Source/ui/shared/ThumbCache.h
 
     # ---- Arranger ----
-    apps/AIDAW/Source/ui/TopBar.cpp
-    apps/AIDAW/Source/ui/Models.h
-    apps/AIDAW/Source/ui/ThumbCache.h
-    apps/AIDAW/Source/ui/ClipComponent.h
-    apps/AIDAW/Source/ui/ClipComponent.cpp
-    apps/AIDAW/Source/ui/TrackLaneComponent.h
-    apps/AIDAW/Source/ui/TrackLaneComponent.cpp
-    apps/AIDAW/Source/ui/ArrangerCanvas.h
-    apps/AIDAW/Source/ui/ArrangerCanvas.cpp
-    apps/AIDAW/Source/ui/Arranger.h
-    apps/AIDAW/Source/ui/Arranger.cpp
+    apps/AIDAW/Source/ui/arranger/ClipComponent.h
+    apps/AIDAW/Source/ui/arranger/ClipComponent.cpp
+    apps/AIDAW/Source/ui/arranger/ArrangerFileUtils.h
+    apps/AIDAW/Source/ui/arranger/ArrangerFileUtils.cpp
+    apps/AIDAW/Source/ui/arranger/TrackLaneComponent.h
+    apps/AIDAW/Source/ui/arranger/TrackLaneComponent.cpp
+    apps/AIDAW/Source/ui/arranger/ArrangerCanvas.h
+    apps/AIDAW/Source/ui/arranger/ArrangerCanvas.cpp
+    apps/AIDAW/Source/ui/arranger/Arranger.h
+    apps/AIDAW/Source/ui/arranger/Arranger.cpp
 
     # ---- MIDI Editor ----
-    apps/AIDAW/Source/ui/MidiEditor.h
-    apps/AIDAW/Source/ui/MidiEditor.cpp
-    apps/AIDAW/Source/ui/Theme.h
+    apps/AIDAW/Source/ui/midi/MidiNote.h
+    apps/AIDAW/Source/ui/midi/MidiEditor.h
+    apps/AIDAW/Source/ui/midi/MidiEditor.cpp
+    apps/AIDAW/Source/ui/midi/MidiEditorNoteComponent.cpp
+
+    # ---- Loops ----
+    apps/AIDAW/Source/ui/loops/LoopsRegistry.h
+    apps/AIDAW/Source/ui/loops/LoopsModal.h
+
+    # ---- Mixer ----
+    apps/AIDAW/Source/ui/mixer/MixerComponent.h
 )
 
 target_compile_definitions(AIDAW PRIVATE

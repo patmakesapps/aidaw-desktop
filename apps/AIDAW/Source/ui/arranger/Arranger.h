@@ -3,7 +3,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
-#include "Models.h"
+#include "../shared/Models.h"
 #include "ClipComponent.h"
 #include "TrackLaneComponent.h"
 #include "ArrangerCanvas.h"
@@ -187,10 +187,6 @@ private:
     void duplicateTrack(size_t idx);
     void removeTrackById(const juce::String& id);
 
-    juce::String extractTrackNameFromAudio(const juce::File& f);
-    double estimateBeatsFromFile(const juce::File& f, double bpm);
-    double detectLoopBpm(const juce::File& f);
-    double secondsOfFile(const juce::File& f);
     void   recomputeClipBeatLengthsForTempo();
     void   performSliceAtBeat(ClipComponent& cc, double beat);
 

@@ -35,6 +35,7 @@ MidiEditor::MidiEditor()
 
     // Bridge refs
     c->onLayoutRequest = [this]{ refreshContentSize(); };
+    c->onNotesChanged = [this]{ notifyNotesChanged(); };
 
     // Model refs
     c->notes           = &notes;
@@ -78,10 +79,18 @@ void MidiEditor::setNotes(const std::vector<MidiNote>& newNotes)
 
     if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
         c->syncNoteComponents();
+
+    notifyNotesChanged();
 }
 
 std::vector<MidiNote>& MidiEditor::editNotes() { return notes; }
 const std::vector<MidiNote>& MidiEditor::getNotes() const { return notes; }
+
+void MidiEditor::notifyNotesChanged()
+{
+    if (onNotesChanged)
+        onNotesChanged(notes);
+}
 
 void MidiEditor::setBPM(double bpm)
 {
@@ -596,7 +605,7 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
     if (e.mods.isRightButtonDown())
     {
         const int idx = indexAtPointNoteArea(p);
-        if (idx >= 0) { (*notes).erase(notes->begin() + idx); syncNoteComponents(); repaint(); }
+        if (idx >= 0) { (*notes).erase(notes->begin() + idx); syncNoteComponents(); if (onNotesChanged) onNotesChanged(); repaint(); }
         return;
     }
 
@@ -648,6 +657,7 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         notes->push_back(n);
         createdIndex = (int)notes->size() - 1;
         creatingNote = true;
+        if (onNotesChanged) onNotesChanged();
         syncNoteComponents(); repaint(); return;
     }
 
@@ -719,6 +729,7 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
         n.lengthBeats = juce::jmax(0.03125, end - createdStartBeats);
         int rowDelta = (p.y - (Theme::rulerH + pitchToRow(n.pitch)*rowHeight + rowHeight/2)) / rowHeight;
         n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, n.pitch - rowDelta);
+        if (onNotesChanged) onNotesChanged();
         syncNoteComponents(); repaint(); return;
     }
 
@@ -740,6 +751,7 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
         const int baseY = getHeight() - 10;
         int h = juce::jlimit(0, Theme::velocityH-16, baseY - p.y);
         n.velocity = juce::jlimit(1, 127, (int)std::round((h / (double)(Theme::velocityH-16))*127.0));
+        if (onNotesChanged) onNotesChanged();
         repaint(); return;
     }
 }
@@ -802,7 +814,7 @@ bool MidiEditor::Content::keyPressed (const juce::KeyPress& key)
         const int vpW = getParentViewportW();
         const int centerX = vpX + vpW/2;
         const int idx = closestNoteToX(centerX);
-        if (idx >= 0) { notes->erase(notes->begin() + idx); syncNoteComponents(); repaint(); return true; }
+        if (idx >= 0) { notes->erase(notes->begin() + idx); syncNoteComponents(); if (onNotesChanged) onNotesChanged(); repaint(); return true; }
     }
     return false;
 }
@@ -952,84 +964,6 @@ void MidiEditor::Content::ensureViewportShowsNotesNearBeat(double anchorBeatIfNe
     const int targetX = Theme::keyWidth + (int)std::round(targetBeat * ppb());
     centerContentOn(targetX, Theme::rulerH + gridHeight()/2);
 }
-// ==== NoteComponent (definitions) ===========================================
-MidiEditor::Content::NoteComponent::NoteComponent(
-    uint32 uid,
-    std::function<void(uint32, juce::Point<int>, bool&, int&)> onDown,
-    std::function<void(uint32, juce::Point<int>)> onDrag,
-    std::function<void(uint32)> onUp,
-    std::function<void(uint32)> onRightErase)
-    : noteId(uid),
-      onMouseDown(std::move(onDown)),
-      onMouseDragCB(std::move(onDrag)),
-      onMouseUpCB(std::move(onUp)),
-      onRightEraseCB(std::move(onRightErase))
-{
-    setInterceptsMouseClicks(true, false);
-    setRepaintsOnMouseActivity(true);
-}
-
-void MidiEditor::Content::NoteComponent::setSelected(bool s)
-{
-    selected = s;
-    repaint();
-}
-
-void MidiEditor::Content::NoteComponent::setColors(juce::Colour body, juce::Colour rim)
-{
-    bodyCol = body;
-    rimCol  = rim;
-    repaint();
-}
-
-void MidiEditor::Content::NoteComponent::paint(juce::Graphics& g)
-{
-    auto r = getLocalBounds().toFloat();
-    const float radius = juce::jmin(r.getHeight() * 0.42f, 8.0f);
-
-    // body gradient
-    juce::Colour top  = bodyCol.brighter(0.18f);
-    juce::Colour base = bodyCol.darker  (0.18f);
-    g.setGradientFill(juce::ColourGradient(top, r.getX(), r.getY(), base, r.getX(), r.getBottom(), false));
-    g.fillRoundedRectangle(r, radius);
-
-    // rim
-    g.setColour(rimCol.withAlpha(selected ? 1.0f : 0.7f));
-    g.drawRoundedRectangle(r, radius, selected ? 2.0f : 1.2f);
-
-    // subtle highlight stripe
-    g.setColour(juce::Colours::white.withAlpha(0.20f));
-    g.fillRect(r.reduced(2.0f).withWidth(2.0f));
-}
-
-void MidiEditor::Content::NoteComponent::mouseDown (const juce::MouseEvent& e)
-{
-    if (e.mods.isRightButtonDown())
-    {
-        if (onRightEraseCB) onRightEraseCB(noteId);
-        return;
-    }
-
-    bool didSelect = false;
-    int  edge      = 0;
-    if (onMouseDown)
-        onMouseDown(noteId, e.getEventRelativeTo(getParentComponent()).getPosition(), didSelect, edge);
-
-    hitEdge = edge;
-}
-
-void MidiEditor::Content::NoteComponent::mouseDrag (const juce::MouseEvent& e)
-{
-    if (e.mods.isRightButtonDown()) return; // don't sweep-delete while dragging
-    if (onMouseDragCB)
-        onMouseDragCB(noteId, e.getEventRelativeTo(getParentComponent()).getPosition());
-}
-
-void MidiEditor::Content::NoteComponent::mouseUp (const juce::MouseEvent& /*e*/)
-{
-    if (onMouseUpCB) onMouseUpCB(noteId);
-}
-
 // ==== Content note interaction helpers =====================================
 
 void MidiEditor::Content::handleNoteMouseDown(uint32 uid, juce::Point<int> pInContent,
@@ -1108,6 +1042,7 @@ void MidiEditor::Content::handleNoteMouseDrag(uint32 /*uid*/, juce::Point<int> p
     }
 
     syncNoteComponents();
+    if (onNotesChanged) onNotesChanged();
 
     if (extendToPixelRight)
     {
@@ -1132,6 +1067,7 @@ void MidiEditor::Content::eraseNoteByUid(uint32 uid)
     notes->erase(notes->begin() + idx);
     selection.clearQuick();
     syncNoteComponents();
+    if (onNotesChanged) onNotesChanged();
     repaint();
 }
 

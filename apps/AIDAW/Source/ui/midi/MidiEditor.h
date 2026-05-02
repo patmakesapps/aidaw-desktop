@@ -1,19 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
-#include "Theme.h"
-
-// Guard for external projects that might already declare MidiNote
-#ifndef AIDAW_MIDI_NOTE_DEFINED
-#define AIDAW_MIDI_NOTE_DEFINED 1
-struct MidiNote
-{
-    int    pitch        { 60 };
-    double startBeats   { 0.0 };
-    double lengthBeats  { 1.0 };
-    int    velocity     { 100 };
-    uint32 uid          { 0 }; // stable id for safe deletion while dragging
-};
-#endif
+#include "MidiNote.h"
+#include "../shared/Theme.h"
 
 class MidiEditor : public juce::Component,
                    private juce::Button::Listener
@@ -50,6 +38,9 @@ public:
     // called by toolbar "Loops" button
     std::function<void()> onShowLoops;
 
+    // called whenever the editor mutates its note list
+    std::function<void(const std::vector<MidiNote>&)> onNotesChanged;
+
     enum class Tool { Select = 0, Draw = 1, Zoom = 2 };
     void setTool(Tool t);
 
@@ -83,6 +74,7 @@ private:
 
         // host layout hooks
         std::function<void()> onLayoutRequest;
+        std::function<void()> onNotesChanged;
 
         // accessors
         double ppb() const;
@@ -226,6 +218,7 @@ private:
 
     // ===== host helpers =====
     void refreshContentSize();
+    void notifyNotesChanged();
     void frameAll();
     void zoomAtContentX(double steps, int anchorXContent);
     void centerOnNearestNote(double anchorBeat);
