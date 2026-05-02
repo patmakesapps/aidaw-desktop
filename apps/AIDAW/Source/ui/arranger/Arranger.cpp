@@ -1,5 +1,6 @@
 #include "Arranger.h"
 #include "ArrangerFileUtils.h"
+#include "../shared/ThemeManager.h"
 #include <algorithm>
 #include <cmath>
 
@@ -10,39 +11,28 @@ Arranger::Arranger()
     setWantsKeyboardFocus(true);
     fm.registerBasicFormats();
 
-    // Buttons + ASCII tooltips (no mojibake)
-    btnPointer.setButtonText(U8(u8"⬚"));
-    btnSlice.setButtonText  (U8(u8"✂"));
-    btnResize.setButtonText (U8(u8"↔"));
-    btnZoomTool.setButtonText(U8(u8"🔍"));
-    btnFrameAll.setButtonText(U8(u8"◰"));
-    btnSnap.setButtonText   (U8(u8"⛓"));
-
-    btnPointer.setTooltip("Pointer (1) - move/select");
-    btnSlice.setTooltip  ("Slice (2) - cut clip");
-    btnResize.setTooltip ("Resize (3) - drag clip edges");
-    btnZoomTool.setTooltip("Zoom (4): L-drag = box zoom, Mid-drag = pan, Right = restore");
-    btnFrameAll.setTooltip("Frame all (F)");
-    btnSnap.setTooltip   ("Snap to grid (G)");
-
     for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool })
         b->setClickingTogglesState(true);
     btnSnap.setClickingTogglesState(true);
     btnSnap.setToggleState(true, juce::dontSendNotification);
 
-    // Add all toolbar buttons (includes NEW: btnLoops)
     for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool,
-                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut, &btnLoops })
-    { b->addListener(this); addAndMakeVisible(b); }
+                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut, &btnLoopIcon })
+    {
+        b->addListener(this);
+        b->setIconScale(0.5f);
+        addAndMakeVisible(b);
+    }
 
-    btnZoomIn.setButtonText("+"); btnZoomOut.setButtonText("-");
-    btnZoomIn.setTooltip("Zoom in (+)"); btnZoomOut.setTooltip("Zoom out (-)");
+    btnLoops.addListener(this); btnLoops.setWantsKeyboardFocus(false); addAndMakeVisible(btnLoops);
+    btnEddie.addListener(this); btnEddie.setWantsKeyboardFocus(false); addAndMakeVisible(btnEddie);
+    btnLoops.setTooltip("Open Loops (create/select)");
+    btnEddie.setTooltip("Open Eddie synth");
 
-    // NEW: Loops button look/feel
-    btnLoops.setTooltip("Open Loops — create/manage loop patterns");
-    btnLoops.setWantsKeyboardFocus(false);
-    btnLoops.setColour(juce::TextButton::buttonColourId, idleCol);
-    btnLoops.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
+    btnLoopIcon.setAccentTint(true);
+    btnFrameAll.setAccentTint(true);
+
+    ThemeManager::get().addChangeListener(this);
 
     setTool(ArrangerTool::Pointer);
 
@@ -66,14 +56,14 @@ Arranger::Arranger()
         view.setViewPosition(view.getViewPositionX(),
                              juce::jmax(0, contentHeight() - view.getHeight()));
     };
-    plusButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF1C1F26));
-    plusButton.setColour(juce::TextButton::textColourOffId, juce::Colours::white.withAlpha(0.92f));
+    plusButton.setColour(juce::TextButton::buttonColourId, juce::Colour(Theme::colBtnIdle));
+    plusButton.setColour(juce::TextButton::textColourOffId, juce::Colour(Theme::colTextDim));
 
     setBPM(120.0);
     setSnap(true);
 
-    // Reasonable defaults to prevent over/under-zoom
-    setZoomLimits(8.0, 1024.0);
+    // Match MIDI editor zoom range for parity
+    setZoomLimits(8.0, 4096.0);
 
     // Seed default lanes exactly once
     ensureDefaultTracks(kDefaultTrackCount);
@@ -84,9 +74,20 @@ Arranger::Arranger()
 
 Arranger::~Arranger()
 {
+    ThemeManager::get().removeChangeListener(this);
     for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool,
-                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut, &btnLoops })
+                     &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut, &btnLoopIcon })
         b->removeListener(this);
+    btnLoops.removeListener(this);
+    btnEddie.removeListener(this);
+}
+
+void Arranger::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    plusButton.setColour(juce::TextButton::buttonColourId,    juce::Colour(Theme::colBtnIdle));
+    plusButton.setColour(juce::TextButton::textColourOffId,   juce::Colour(Theme::colTextDim));
+    canvas.repaint();
+    repaint();
 }
 
 void Arranger::ensureDefaultTracks(int n)
@@ -123,15 +124,10 @@ void Arranger::setSnap(bool on)
 void Arranger::setTool(ArrangerTool t)
 {
     tool = t;
-    auto mark = [&](juce::TextButton& b, bool on){
-        b.setToggleState(on, juce::dontSendNotification);
-        b.setColour(juce::TextButton::buttonColourId, on ? activeCol : idleCol);
-        b.setColour(juce::TextButton::textColourOffId, juce::Colours::white);
-    };
-    mark(btnPointer, t == ArrangerTool::Pointer);
-    mark(btnSlice,   t == ArrangerTool::Slice);
-    mark(btnResize,  t == ArrangerTool::Resize);
-    mark(btnZoomTool,t == ArrangerTool::Zoom);
+    btnPointer .setToggleState(t == ArrangerTool::Pointer, juce::dontSendNotification);
+    btnSlice   .setToggleState(t == ArrangerTool::Slice,   juce::dontSendNotification);
+    btnResize  .setToggleState(t == ArrangerTool::Resize,  juce::dontSendNotification);
+    btnZoomTool.setToggleState(t == ArrangerTool::Zoom,    juce::dontSendNotification);
 
     // Clear marquee and restore cursor/selection state
     selectionActive = false;
@@ -192,17 +188,18 @@ void Arranger::resized()
     auto r = getLocalBounds().reduced(8, 6);
 
     auto tools = r.removeFromTop(34);
-    btnPointer .setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnSlice   .setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnResize  .setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnZoomTool.setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnFrameAll.setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(12);
-    btnSnap    .setBounds(tools.removeFromLeft(56)); tools.removeFromLeft(12);
-    btnZoomOut .setBounds(tools.removeFromLeft(36)); tools.removeFromLeft(4);
-    btnZoomIn  .setBounds(tools.removeFromLeft(36)); tools.removeFromLeft(8);
-
-    // NEW: place Loops button to the right of the "+" (Zoom In) button
-    btnLoops   .setBounds(tools.removeFromLeft(76));
+    const int ib = 36;
+    btnPointer .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnSlice   .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnResize  .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnZoomTool.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnFrameAll.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnSnap    .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnZoomOut .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnZoomIn  .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnLoopIcon.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnLoops   .setBounds(tools.removeFromLeft(72)); tools.removeFromLeft(6);
+    btnEddie   .setBounds(tools.removeFromLeft(74));
 
     view.setBounds(r);
 
@@ -1122,5 +1119,6 @@ void Arranger::buttonClicked(juce::Button* b)
     else if (b == &btnSnap)    setSnap(btnSnap.getToggleState());
     else if (b == &btnZoomIn)  zoomAtViewportCenter(+1.0);
     else if (b == &btnZoomOut) zoomAtViewportCenter(-1.0);
-    else if (b == &btnLoops)   { if (onLoopsClicked) onLoopsClicked(); } // NEW
+    else if (b == &btnLoopIcon || b == &btnLoops) { if (onLoopsClicked) onLoopsClicked(); }
+    else if (b == &btnEddie)   { if (onEddieClicked) onEddieClicked(); }
 }

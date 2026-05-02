@@ -8,6 +8,7 @@
 #include "../ui/arranger/Arranger.h"
 #include "../ui/midi/MidiEditor.h"
 #include "../ui/mixer/MixerComponent.h"
+#include "../ui/shared/AIDAWLook.h"
 #include "../ui/shell/TopBar.h"
 #include "../ui/synth/EddieSynthPanel.h"
 
@@ -15,6 +16,7 @@ namespace aidaw
 {
 
 class MainComponent : public juce::Component,
+                      public juce::ChangeListener,
                       private juce::Timer
 {
 public:
@@ -25,6 +27,7 @@ public:
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
     void timerCallback() override;
@@ -33,6 +36,7 @@ private:
     void openLoopsModal();
     void openEddiePanel();
 
+    AIDAWLook look;
     TopBar topBar;
     Arranger arranger;
     MidiEditor midi;
@@ -48,9 +52,9 @@ private:
     bool recordArmed { false };
     double currentBpm { 120.0 };
 
-    bool loopEnabled { true };
+    bool loopEnabled { false };
     double loopStartBeats { 0.0 };
-    double loopLengthBeats { 4.0 };
+    double loopLengthBeats { 0.0 };
 
     juce::TooltipWindow tooltip { this, 350 };
 

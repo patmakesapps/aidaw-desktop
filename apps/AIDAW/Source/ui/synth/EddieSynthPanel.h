@@ -8,12 +8,14 @@ namespace aidaw
 {
 
 class EddieSynthPanel : public juce::Component,
+                        public juce::ChangeListener,
                         private juce::Button::Listener,
                         private juce::ComboBox::Listener
 {
 public:
     EddieSynthPanel();
-    ~EddieSynthPanel() override = default;
+    ~EddieSynthPanel() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     void setSettings (const EddieSynthSettings& settings);
     EddieSynthSettings getSettings() const;

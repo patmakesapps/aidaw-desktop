@@ -38,6 +38,9 @@ target_sources(AIDAW PRIVATE
     # ---- Shared UI Models/Theme ----
     apps/AIDAW/Source/ui/shared/Models.h
     apps/AIDAW/Source/ui/shared/Theme.h
+    apps/AIDAW/Source/ui/shared/ThemeManager.h
+    apps/AIDAW/Source/ui/shared/AIDAWLook.h
+    apps/AIDAW/Source/ui/shared/Icons.h
     apps/AIDAW/Source/ui/shared/ThumbCache.h
 
     # ---- Arranger ----

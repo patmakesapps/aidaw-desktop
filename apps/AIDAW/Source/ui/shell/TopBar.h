@@ -2,19 +2,10 @@
 
 #include <JuceHeader.h>
 #include <functional>
-
-class AIDAWLook : public juce::LookAndFeel_V4
-{
-public:
-    AIDAWLook();
-
-    void drawButtonBackground (juce::Graphics& g, juce::Button& b,
-                               const juce::Colour& base,
-                               bool highlighted,
-                               bool down) override;
-};
+#include "../shared/Icons.h"
 
 class TopBar : public juce::Component,
+               public juce::ChangeListener,
                private juce::Button::Listener,
                private juce::TextEditor::Listener
 {
@@ -44,27 +35,42 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
     void buttonClicked (juce::Button* button) override;
     void textEditorReturnKeyPressed (juce::TextEditor& editor) override;
     void textEditorFocusLost (juce::TextEditor& editor) override;
     void applyBpmFrom (juce::TextEditor& editor);
+    void refreshColours();
+    void showThemeMenu();
 
-    AIDAWLook look;
+    // Transport (icon buttons)
+    IconButton playPause { "Play (Space)",  Icons::play(),    IconButton::Style::Filled };
+    IconButton stop      { "Stop",          Icons::stop(),    IconButton::Style::Filled };
+    IconButton record    { "Arm record",    Icons::record(),  IconButton::Style::Filled };
 
-    juce::TextButton playPause, stop, record;
-    juce::TextButton modeComposer, modeMidi, modeMixer;
-    juce::Label clusterDot;
+    // Segmented mode switch (three buttons rendered as connected pills)
+    juce::TextButton modeComposer { "Composer" };
+    juce::TextButton modeMidi     { "MIDI" };
+    juce::TextButton modeMixer    { "Mixer" };
+
     juce::Label title;
 
+    // Tempo pill
     juce::Rectangle<int> bpmPillBounds;
-    juce::Label bpmLabelLeft, bpmLabelRight;
-    juce::TextButton minusBtn, plusBtn;
+    juce::Label bpmLabel;
+    IconButton minusBtn { "Tempo -1", Icons::minus(), IconButton::Style::Stroked };
+    IconButton plusBtn  { "Tempo +1", Icons::plus(),  IconButton::Style::Stroked };
     juce::TextEditor bpmEdit;
-    juce::ToggleButton clickToggle;
 
-    juce::TextButton btnMin, btnClose;
+    // Click / metronome toggle
+    IconButton clickToggle { "Metronome on/off", Icons::metronome(), IconButton::Style::Stroked };
+
+    // Theme + window
+    IconButton btnTheme { "Switch theme",  Icons::palette(),  IconButton::Style::Stroked };
+    IconButton btnMin   { "Minimize",      Icons::minimize(), IconButton::Style::Stroked };
+    IconButton btnClose { "Close",         Icons::closeX(),   IconButton::Style::Stroked };
 
     bool isPlaying { false };
     bool recordArmed { false };

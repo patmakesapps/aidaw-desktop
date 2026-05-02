@@ -1,6 +1,8 @@
 #include "MainComponent.h"
 
 #include "../ui/loops/LoopsModal.h"
+#include "../ui/shared/Theme.h"
+#include "../ui/shared/ThemeManager.h"
 
 namespace aidaw
 {
@@ -9,6 +11,8 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     : mixer (mix), metronome (metro), timeline (arranger.tracks, currentBpm)
 {
     setOpaque (true);
+    juce::LookAndFeel::setDefaultLookAndFeel(&look);
+    ThemeManager::get().addChangeListener(this);
 
     addAndMakeVisible (topBar);
     addAndMakeVisible (arranger);
@@ -122,6 +126,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     midi.onShowLoops = [this] { openLoopsModal(); };
     midi.onOpenSynth = [this] { openEddiePanel(); };
     arranger.onLoopsClicked = [this] { openLoopsModal(); };
+    arranger.onEddieClicked = [this] { openEddiePanel(); };
 
     setWantsKeyboardFocus (true);
     setSize (1200, 720);
@@ -131,6 +136,8 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
 MainComponent::~MainComponent()
 {
     stopTimer();
+    ThemeManager::get().removeChangeListener(this);
+    juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     mixer.removeInputSource (&eddie);
     mixer.removeInputSource (&timeline);
     mixer.removeInputSource (&metronome);
@@ -138,7 +145,12 @@ MainComponent::~MainComponent()
 
 void MainComponent::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colours::black);
+    g.fillAll (juce::Colour(Theme::colBgMain));
+}
+
+void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    repaint();
 }
 
 void MainComponent::resized()

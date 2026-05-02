@@ -2,13 +2,16 @@
 #include <JuceHeader.h>
 #include "MidiNote.h"
 #include "../shared/Theme.h"
+#include "../shared/Icons.h"
 
 class MidiEditor : public juce::Component,
+                   public juce::ChangeListener,
                    private juce::Button::Listener
 {
 public:
     MidiEditor();
-    ~MidiEditor() override = default;
+    ~MidiEditor() override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
     // ==== External model control ====
     void setNotes(const std::vector<MidiNote>& newNotes);
@@ -281,7 +284,16 @@ private:
 
     // UI
     juce::Viewport view;
-    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoopToggle, btnLoops, btnEddie;
+    IconButton btnSelect    { "Select / Move (1)",    Icons::pointer(),   IconButton::Style::Filled };
+    IconButton btnDraw      { "Draw (2)",             Icons::pencil(),    IconButton::Style::Stroked };
+    IconButton btnZoomTool  { "Zoom tool (4)",        Icons::magnifier(), IconButton::Style::Stroked };
+    IconButton btnFrameAll  { "Frame all (F)",        Icons::frame(),     IconButton::Style::Stroked };
+    IconButton btnSnap      { "Snap (G)",             Icons::magnet(),    IconButton::Style::Stroked };
+    IconButton btnZoomOut   { "Zoom out (-)",         Icons::minus(),     IconButton::Style::Stroked };
+    IconButton btnZoomIn    { "Zoom in (+)",          Icons::plus(),      IconButton::Style::Stroked };
+    IconButton btnLoopToggle{ "Toggle loop region",   Icons::loopGlyph(), IconButton::Style::Stroked };
+    juce::TextButton btnLoops { "Loops" };
+    juce::TextButton btnEddie { "Eddie" };
     juce::ComboBox gridMenu;
 
     Tool tool { Tool::Select };

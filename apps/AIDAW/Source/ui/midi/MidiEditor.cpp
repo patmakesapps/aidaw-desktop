@@ -1,4 +1,5 @@
 #include "MidiEditor.h"
+#include "../shared/ThemeManager.h"
 
 #include <algorithm>
 
@@ -9,20 +10,31 @@ MidiEditor::MidiEditor()
     setWantsKeyboardFocus(true);
 
     // --- Toolbar ---
-    for (juce::TextButton* b : { &btnSelect, &btnDraw, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomOut, &btnZoomIn, &btnLoopToggle, &btnLoops, &btnEddie })
+    juce::Button* allButtons[] = {
+        static_cast<juce::Button*>(&btnSelect),
+        static_cast<juce::Button*>(&btnDraw),
+        static_cast<juce::Button*>(&btnZoomTool),
+        static_cast<juce::Button*>(&btnFrameAll),
+        static_cast<juce::Button*>(&btnSnap),
+        static_cast<juce::Button*>(&btnZoomOut),
+        static_cast<juce::Button*>(&btnZoomIn),
+        static_cast<juce::Button*>(&btnLoopToggle),
+        static_cast<juce::Button*>(&btnLoops),
+        static_cast<juce::Button*>(&btnEddie),
+    };
+    for (auto* b : allButtons)
     { addAndMakeVisible(b); b->addListener(this); b->setWantsKeyboardFocus(false); }
+
+    for (auto* ib : { &btnSelect, &btnDraw, &btnZoomTool, &btnFrameAll, &btnSnap,
+                      &btnZoomOut, &btnZoomIn, &btnLoopToggle })
+        ib->setIconScale(0.5f);
+
+    btnFrameAll.setAccentTint(true);
+    btnLoopToggle.setAccentTint(true);
+
     addAndMakeVisible(gridMenu);
 
-    btnSelect  .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"⬚"))); btnSelect.setTooltip ("Select / Move (1)");
-    btnDraw    .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"✎"))); btnDraw.setTooltip   ("Draw (2)");
-    btnZoomTool.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"🔍"))); btnZoomTool.setTooltip("Zoom tool (4): L-drag=box, Right=Frame All");
-    btnFrameAll.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"◰"))); btnFrameAll.setTooltip("Frame all (F)");
-    btnSnap    .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"⛓"))); btnSnap.setTooltip   ("Snap (G)");
-    btnZoomOut .setButtonText("-");                                                           btnZoomOut.setTooltip("Zoom out (-)");
-    btnZoomIn  .setButtonText("+");                                                           btnZoomIn.setTooltip ("Zoom in (+)");
-    btnLoopToggle.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"↻"))); btnLoopToggle.setTooltip("Show and enable the loop region");
-    btnLoops   .setButtonText("Loops");                                                       btnLoops.setTooltip  ("Open Loops (create/select)");
-    btnEddie   .setButtonText("Eddie");                                                       btnEddie.setTooltip  ("Open Eddie synth");
+    ThemeManager::get().addChangeListener(this);
 
     gridMenu.addItem("1 bar", 1);
     gridMenu.addItem("1/2",   2);
@@ -52,7 +64,6 @@ MidiEditor::MidiEditor()
     btnSnap.setClickingTogglesState(true); btnSnap.setToggleState(true, juce::dontSendNotification);
     btnLoopToggle.setClickingTogglesState(true);
     btnLoopToggle.setToggleState(false, juce::dontSendNotification);
-    btnLoopToggle.setColour(juce::TextButton::buttonColourId, juce::Colour(Theme::colBtnIdle));
     setTool(Tool::Select);
 
     // --- Viewport + content ---
@@ -105,6 +116,18 @@ MidiEditor::MidiEditor()
 
     refreshContentSize();
     c->syncNoteComponents();
+}
+
+MidiEditor::~MidiEditor()
+{
+    ThemeManager::get().removeChangeListener(this);
+}
+
+void MidiEditor::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
+        c->repaint();
+    repaint();
 }
 
 void MidiEditor::setNotes(const std::vector<MidiNote>& newNotes)
@@ -244,8 +267,6 @@ void MidiEditor::setLoopEnabled(bool on)
 {
     loopEnabled = on;
     btnLoopToggle.setToggleState(on, juce::dontSendNotification);
-    btnLoopToggle.setColour(juce::TextButton::buttonColourId, on ? juce::Colour(Theme::colBtnActive)
-                                                                  : juce::Colour(Theme::colBtnIdle));
     if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
         c->repaint();
     repaint();
@@ -366,18 +387,18 @@ void MidiEditor::resized()
 {
     auto r = getLocalBounds().reduced(8, 6);
     auto tools = r.removeFromTop(34);
-    btnSelect  .setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnDraw    .setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnZoomTool.setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(6);
-    btnFrameAll.setBounds(tools.removeFromLeft(40)); tools.removeFromLeft(12);
-    btnSnap    .setBounds(tools.removeFromLeft(56)); tools.removeFromLeft(12);
-    btnZoomOut .setBounds(tools.removeFromLeft(36)); tools.removeFromLeft(4);
-    btnZoomIn  .setBounds(tools.removeFromLeft(36));
-    tools.removeFromLeft(8); // small gap after '+'
+    const int ib = 36;
+    btnSelect  .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnDraw    .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnZoomTool.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnFrameAll.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnSnap    .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnZoomOut .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
+    btnZoomIn  .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
     gridMenu   .setBounds(tools.removeFromLeft(82)); tools.removeFromLeft(8);
-    btnLoopToggle.setBounds(tools.removeFromLeft(44)); tools.removeFromLeft(8);
-    btnLoops   .setBounds(tools.removeFromLeft(72)); // "Loops" button just to the right of '+'
-    tools.removeFromLeft(8);
+    btnLoopToggle.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
+    btnLoops   .setBounds(tools.removeFromLeft(72));
+    tools.removeFromLeft(6);
     btnEddie   .setBounds(tools.removeFromLeft(74));
 
     r.removeFromTop(8);
@@ -428,14 +449,9 @@ void MidiEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhe
 void MidiEditor::setTool(Tool t)
 {
     tool = t;
-    auto mark = [&](juce::TextButton& b, bool on){
-        b.setToggleState(on, juce::dontSendNotification);
-        b.setColour(juce::TextButton::buttonColourId, on ? juce::Colour(Theme::colBtnActive) : juce::Colour(Theme::colBtnIdle));
-        b.setColour(juce::TextButton::textColourOffId, juce::Colour(Theme::colBtnText));
-    };
-    mark(btnSelect,  t==Tool::Select);
-    mark(btnDraw,    t==Tool::Draw);
-    mark(btnZoomTool,t==Tool::Zoom);
+    btnSelect  .setToggleState(t == Tool::Select, juce::dontSendNotification);
+    btnDraw    .setToggleState(t == Tool::Draw,   juce::dontSendNotification);
+    btnZoomTool.setToggleState(t == Tool::Zoom,   juce::dontSendNotification);
 
     if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
     {

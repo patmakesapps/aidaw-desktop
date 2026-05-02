@@ -4,12 +4,14 @@
 #include <memory>
 #include <optional>
 #include "../shared/Models.h"
+#include "../shared/Icons.h"
 #include "ClipComponent.h"
 #include "TrackLaneComponent.h"
 #include "ArrangerCanvas.h"
 
 class Arranger  : public juce::Component,
                   public juce::FileDragAndDropTarget,
+                  public juce::ChangeListener,
                   private juce::Button::Listener
 {
 public:
@@ -23,8 +25,11 @@ public:
     std::function<void()>        onPlayPressed;
     std::function<void()>        onStopPressed;
 
-    // NEW: open the Loops modal from the Arranger toolbar
+    // open the Loops modal from the Arranger toolbar
     std::function<void()>        onLoopsClicked;
+
+    // open the Eddie synth panel from the Arranger toolbar
+    std::function<void()>        onEddieClicked;
 
     void setBPM(double bpm);
     void setSnap(bool on);
@@ -49,6 +54,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
 
 private:
     // content layer inside the viewport
@@ -61,25 +67,31 @@ private:
     ArrangerCanvas  canvas;                // overlay grid/ruler/playhead/selection (on top)
     juce::TextButton plusButton { "+" };   // add-track button (sibling to lanes)
 
-    // tools
-    juce::TextButton btnPointer, btnSlice, btnResize, btnZoomTool, btnFrameAll, btnSnap, btnZoomIn, btnZoomOut;
-
-    // NEW: Loops button on the Arranger toolbar
+    // tools (icon buttons)
+    IconButton btnPointer  { "Pointer (1)",         Icons::pointer(),   IconButton::Style::Filled };
+    IconButton btnSlice    { "Slice (2)",           Icons::scissors(),  IconButton::Style::Stroked };
+    IconButton btnResize   { "Resize (3)",          Icons::resizeH(),   IconButton::Style::Stroked };
+    IconButton btnZoomTool { "Zoom (4)",            Icons::magnifier(), IconButton::Style::Stroked };
+    IconButton btnFrameAll { "Frame all (F)",       Icons::frame(),     IconButton::Style::Stroked };
+    IconButton btnSnap     { "Snap to grid (G)",    Icons::magnet(),    IconButton::Style::Stroked };
+    IconButton btnZoomIn   { "Zoom in (+)",         Icons::plus(),      IconButton::Style::Stroked };
+    IconButton btnZoomOut  { "Zoom out (-)",        Icons::minus(),     IconButton::Style::Stroked };
+    IconButton btnLoopIcon { "Open Loops",          Icons::loopGlyph(), IconButton::Style::Stroked };
     juce::TextButton btnLoops { "Loops" };
+    juce::TextButton btnEddie { "Eddie" };
 
     ArrangerTool tool { ArrangerTool::Pointer };
-    juce::Colour activeCol = juce::Colour(0xFF3B82F6), idleCol = juce::Colour(0xFF2A2A2A);
 
     // timing + grid
     double bpmValue { 120.0 };
     bool   snapToGrid { true };
-    double ppbAt120 { 52.0 };
-    double pixelsPerBeat { 52.0 };
+    double ppbAt120 { 80.0 };
+    double pixelsPerBeat { 80.0 };
     double zoomScale { 1.0 };
 
-    // enforced zoom limits to avoid “clipping” at extreme zooms
-    double minPixelsPerBeat { 8.0 };       // far view
-    double maxPixelsPerBeat { 1024.0 };    // close view for vocal editing
+    // enforced zoom limits — match MIDI editor for parity
+    double minPixelsPerBeat { 8.0 };
+    double maxPixelsPerBeat { 4096.0 };
 
     // playhead
     double playheadBeats { 0.0 };

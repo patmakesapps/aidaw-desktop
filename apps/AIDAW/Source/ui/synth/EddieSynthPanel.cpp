@@ -1,6 +1,7 @@
 #include "EddieSynthPanel.h"
 
 #include "../shared/Theme.h"
+#include "../shared/ThemeManager.h"
 
 namespace aidaw
 {
@@ -15,6 +16,7 @@ constexpr uint32 controlLine = 0x5538E0FF;
 EddieSynthPanel::EddieSynthPanel()
 {
     setOpaque (false);
+    ThemeManager::get().addChangeListener(this);
 
     title.setText ("Eddie", juce::dontSendNotification);
     title.setJustificationType (juce::Justification::centredLeft);
@@ -257,10 +259,27 @@ void EddieSynthPanel::paint (juce::Graphics& g)
     g.fillRect (getLocalBounds());
 
     auto panel = getLocalBounds().reduced (18).toFloat();
-    g.setColour (juce::Colour (panelBg));
-    g.fillRoundedRectangle (panel, 8.0f);
-    g.setColour (juce::Colour (controlLine));
-    g.drawRoundedRectangle (panel, 8.0f, 1.4f);
+    g.setColour (juce::Colour (Theme::colBgPanel));
+    g.fillRoundedRectangle (panel, 10.0f);
+    g.setColour (juce::Colour (Theme::colAccent).withAlpha (0.35f));
+    g.drawRoundedRectangle (panel, 10.0f, 1.4f);
+}
+
+EddieSynthPanel::~EddieSynthPanel()
+{
+    ThemeManager::get().removeChangeListener(this);
+}
+
+void EddieSynthPanel::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    for (auto* s : { &gain, &saw, &sub, &attack, &decay, &sustain, &release })
+    {
+        s->setColour(juce::Slider::rotarySliderFillColourId, juce::Colour(Theme::colAccent));
+        s->setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(Theme::colBgPanel));
+    }
+    presetName.setColour(juce::TextEditor::backgroundColourId, juce::Colour(Theme::colBgPanel));
+    presetName.setColour(juce::TextEditor::textColourId,       juce::Colour(Theme::colText));
+    repaint();
 }
 
 void EddieSynthPanel::resized()
