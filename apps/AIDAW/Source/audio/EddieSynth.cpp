@@ -19,6 +19,19 @@ double msToSeconds (float ms)
 {
     return juce::jmax (0.001, (double) ms * 0.001);
 }
+
+void softLimitBuffer (const juce::AudioSourceChannelInfo& info)
+{
+    if (info.buffer == nullptr)
+        return;
+
+    for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
+    {
+        auto* data = info.buffer->getWritePointer (ch, info.startSample);
+        for (int i = 0; i < info.numSamples; ++i)
+            data[i] = std::tanh (data[i] * 1.15f) / 1.15f;
+    }
+}
 }
 
 void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
@@ -143,6 +156,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
         {
             playheadSamples.fetch_add (info.numSamples);
             renderPreviewVoices (info);
+            softLimitBuffer (info);
             return;
         }
 
@@ -173,6 +187,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
     }
 
     renderPreviewVoices (info);
+    softLimitBuffer (info);
 }
 
 void EddieSynthAudioSource::setPlaying (bool shouldPlay)
@@ -224,12 +239,19 @@ void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
 
     PreviewVoice voice;
     voice.note.pitch = juce::jlimit (0, 127, pitch);
-    voice.note.velocity = juce::jlimit (1, 127, velocity);
+    voice.note.velocity = juce::jlimit (1, 82, velocity);
     voice.note.startBeats = 0.0;
     voice.note.lengthBeats = previewSeconds / secondsPerBeat;
     voice.releaseEndSamples = (int64) std::ceil ((previewSeconds + msToSeconds (settings.releaseMs)) * sampleRate);
 
     const juce::ScopedLock lock (previewLock);
+    if (! previewVoices.empty() && previewVoices.back().note.pitch == voice.note.pitch
+        && previewVoices.back().sampleCursor < previewVoices.back().releaseEndSamples)
+        return;
+
+    if (previewVoices.size() > 2)
+        previewVoices.erase (previewVoices.begin(), previewVoices.end() - 2);
+
     previewVoices.push_back (voice);
 }
 
@@ -247,7 +269,12 @@ void EddieSynthAudioSource::renderPreviewVoices (const juce::AudioSourceChannelI
 
     for (auto& voice : previewVoices)
     {
-        EddieSynthVoiceRenderer::renderNote (voice.note, settings, sampleRate, bpm, voice.sampleCursor,
+        auto previewSettings = settings;
+        previewSettings.outputGain *= 0.55f;
+        previewSettings.sawMix = juce::jmin (previewSettings.sawMix, 0.45f);
+        previewSettings.subMix = juce::jmin (previewSettings.subMix, 0.10f);
+
+        EddieSynthVoiceRenderer::renderNote (voice.note, previewSettings, sampleRate, bpm, voice.sampleCursor,
                                              *info.buffer, info.startSample, 0, info.numSamples);
         voice.sampleCursor += info.numSamples;
     }

@@ -85,7 +85,18 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
         resized();
     };
 
-    midi.setLoopEnabled (true);
+    topBar.onMinimize = [this]
+    {
+        if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
+            window->setMinimised (true);
+    };
+
+    topBar.onClose = []
+    {
+        juce::JUCEApplicationBase::getInstance()->systemRequestedQuit();
+    };
+
+    midi.setLoopEnabled (false);
     midi.setLoopRegion (loopStartBeats, loopLengthBeats);
     midi.onLoopChanged = [this] (double start, double len)
     {

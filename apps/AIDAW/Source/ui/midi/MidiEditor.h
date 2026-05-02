@@ -50,6 +50,7 @@ public:
 
     // JUCE
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
     void resized() override;
     bool keyPressed(const juce::KeyPress& key) override;
     void mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
@@ -58,7 +59,7 @@ public:
     void frameAllView(); // calls private frameAll()
 
     // expose for MainComponent
-    void setLoopEnabledInternal(bool on) { loopEnabled = on; }
+    void setLoopEnabledInternal(bool on) { setLoopEnabled(on); }
 
 private:
     // ===== Content =====
@@ -137,6 +138,8 @@ private:
         double snapQuantum() const;
         double snapToGrid(double beats) const;
         void auditionKeyAt(juce::Point<int> p);
+        void previewPitch(int pitch);
+        static juce::String pitchName(int pitch);
 
         // interaction helpers
         int closestNoteToX(int x) const;
@@ -149,36 +152,45 @@ private:
         public:
             NoteComponent(
                 uint32 noteUid,
-                std::function<void(uint32, juce::Point<int>, bool&, int&)> onDown,
+                std::function<void(uint32, juce::Point<int>, const juce::ModifierKeys&, bool&, int&)> onDown,
                 std::function<void(uint32, juce::Point<int>)> onDrag,
                 std::function<void(uint32)> onUp,
                 std::function<void(uint32)> onRightErase);
 
             void setSelected(bool s);
             void setColors(juce::Colour body, juce::Colour rim);
+            void setLabel(const juce::String& text);
             void paint(juce::Graphics& g) override;
             void mouseDown (const juce::MouseEvent& e) override;
             void mouseDrag (const juce::MouseEvent& e) override;
             void mouseUp   (const juce::MouseEvent& e) override;
+            void mouseMove (const juce::MouseEvent& e) override;
+            void mouseExit (const juce::MouseEvent& e) override;
 
             uint32 noteId { 0 };
             int hitEdge { 0 }; // 0=body,1=left,2=right
         private:
+            int edgeAtLocalPoint(juce::Point<int> p) const;
+
             bool selected { false };
+            int hoverEdge { 0 };
             juce::Colour bodyCol, rimCol;
-            std::function<void(uint32, juce::Point<int>, bool&, int&)> onMouseDown;
+            juce::String label;
+            std::function<void(uint32, juce::Point<int>, const juce::ModifierKeys&, bool&, int&)> onMouseDown;
             std::function<void(uint32, juce::Point<int>)> onMouseDragCB;
             std::function<void(uint32)> onMouseUpCB;
             std::function<void(uint32)> onRightEraseCB;
         };
 
         // internal note interactions
-        void handleNoteMouseDown(uint32 uid, juce::Point<int> pInContent, bool& didSelect, int& edge);
+        void handleNoteMouseDown(uint32 uid, juce::Point<int> pInContent, const juce::ModifierKeys& mods, bool& didSelect, int& edge);
         void handleNoteMouseDrag(uint32 uid, juce::Point<int> pInContent);
         void handleNoteMouseUp(uint32 uid);
         void eraseNoteByUid(uint32 uid);
 
         int hitEdgeAt(int idx, juce::Point<int> p) const;
+        juce::Rectangle<int> noteBounds(int idx) const;
+        void selectNotesInRect(juce::Rectangle<int> rect);
 
         // marquee
         bool marqueeActive { false };
@@ -199,8 +211,13 @@ private:
         bool creatingNote { false };
         int createdIndex { -1 };
         double createdStartBeats { 0.0 };
+        double createdLengthAtDown { 0.25 };
+        int createdMouseDownX { 0 };
+        int createdPitchAtDown { 60 };
         double rememberedNoteLengthBeats { 0.25 };
         int auditionedPitch { -1 };
+        int dragPreviewPitch { -1 };
+        int dragEdgeAtDown { 0 };
 
         // velocity drag
         bool velDragActive { false };
@@ -250,7 +267,7 @@ private:
     double gridQuantumBeats { 0.25 };
 
     double playheadBeats { 0.0 };
-    bool   loopEnabled   { true };
+    bool   loopEnabled   { false };
     double loopStartBeats{ 0.0 };
     double loopLengthBeats{4.0};
 
@@ -261,8 +278,9 @@ private:
 
     // UI
     juce::Viewport view;
-    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoops;
+    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoopToggle, btnLoops;
     juce::ComboBox gridMenu;
 
     Tool tool { Tool::Select };
+    bool initialPitchCentered { false };
 };
