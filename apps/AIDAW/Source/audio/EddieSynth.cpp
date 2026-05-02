@@ -215,6 +215,15 @@ void EddieSynthAudioSource::setPlayheadBeats (double beats)
     playheadSamples.store ((int64) std::llround (beats * secondsPerBeat * sampleRate));
 }
 
+double EddieSynthAudioSource::getPlayheadBeats() const
+{
+    if (sampleRate <= 0.0 || bpm <= 0.0)
+        return pendingSeekBeats.load();
+
+    const double secondsPerBeat = 60.0 / bpm;
+    return (double) playheadSamples.load() / sampleRate / secondsPerBeat;
+}
+
 void EddieSynthAudioSource::setBpm (double bpmIn)
 {
     bpm = juce::jlimit (40.0, 300.0, bpmIn);

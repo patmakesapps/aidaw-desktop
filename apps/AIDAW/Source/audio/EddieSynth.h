@@ -51,6 +51,7 @@ public:
     void setPlaying (bool shouldPlay);
     void resetToStart();
     void setPlayheadBeats (double beats);
+    double getPlayheadBeats() const;
     void setBpm (double bpmIn);
     void setNotes (const std::vector<MidiNote>& newNotes);
     void setSettings (const EddieSynthSettings& newSettings);

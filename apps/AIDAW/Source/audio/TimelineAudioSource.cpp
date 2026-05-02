@@ -143,6 +143,9 @@ void TimelineAudioSource::buildReaders()
     {
         for (auto& clip : track.clips)
         {
+            if (clip.kind != ClipModel::Kind::Audio)
+                continue;
+
             if (! clip.file.existsAsFile())
                 continue;
 

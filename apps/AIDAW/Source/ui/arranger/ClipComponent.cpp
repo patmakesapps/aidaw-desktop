@@ -1,4 +1,5 @@
 #include "ClipComponent.h"
+#include "../loops/LoopsRegistry.h"
 
 ClipComponent::ClipComponent(ClipModel& m,
                              juce::AudioFormatManager& fmIn,
@@ -14,7 +15,7 @@ ClipComponent::ClipComponent(ClipModel& m,
     setInterceptsMouseClicks(true, true);
     setBufferedToImage(true);
 
-    if (model.file.existsAsFile())
+    if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
     {
         (void) ThumbPersistence::load(thumb, model.file);
         thumb.setSource(new juce::FileInputSource(model.file)); // takes ownership
@@ -58,10 +59,46 @@ void ClipComponent::paint(juce::Graphics& g)
     g.setColour(selected ? juce::Colour(0xFF2E3A52) : juce::Colour(0xFF373737));
     g.fillRoundedRectangle(r, 8.0f);
 
-    // Waveform area
+    // Waveform / MIDI preview area
     auto inner = r.reduced(8.0f, 6.0f).toNearestInt();
 
-    if (thumb.getTotalLength() > 0.0)
+    if (model.kind == ClipModel::Kind::MidiLoop)
+    {
+        const auto* loop = LoopsRegistry::instance().get(model.loopId);
+        const juce::String name = loop != nullptr ? loop->name : model.label;
+
+        g.setColour(juce::Colour(0xFF101820));
+        g.fillRoundedRectangle(inner.toFloat(), 5.0f);
+
+        g.setColour(juce::Colour(0x223CE0FF));
+        for (int i = 1; i < 4; ++i)
+            g.fillRect(inner.getX() + (i * inner.getWidth()) / 4, inner.getY(), 1, inner.getHeight());
+
+        if (loop != nullptr)
+        {
+            const int pitchMin = 36;
+            const int pitchMax = 84;
+            const double loopLen = juce::jmax(1.0, loop->lengthBeats);
+            for (const auto& n : loop->notes)
+            {
+                const double x0 = juce::jlimit(0.0, loopLen, n.startBeats);
+                const double x1 = juce::jlimit(0.0, loopLen, n.startBeats + n.lengthBeats);
+                const int nx = inner.getX() + (int) std::round((x0 / loopLen) * inner.getWidth());
+                const int nw = juce::jmax(4, (int) std::round(((x1 - x0) / loopLen) * inner.getWidth()));
+                const float t = (float) juce::jlimit(0.0, 1.0, (n.pitch - pitchMin) / (double) (pitchMax - pitchMin));
+                const int ny = inner.getBottom() - 7 - (int) std::round(t * (inner.getHeight() - 12));
+
+                g.setColour(juce::Colour(0xFF3CE0FF).withAlpha(0.88f));
+                g.fillRoundedRectangle((float) nx, (float) ny, (float) nw, 6.0f, 3.0f);
+            }
+        }
+
+        g.setColour(juce::Colours::white.withAlpha(0.92f));
+        g.setFont(juce::Font(12.0f).boldened());
+        g.drawText(name.isNotEmpty() ? name : "MIDI Loop", getLocalBounds().reduced(10, 6),
+                   juce::Justification::topLeft, true);
+    }
+    else if (thumb.getTotalLength() > 0.0)
     {
         g.setColour(juce::Colour(0xFFB4B4B4));
 

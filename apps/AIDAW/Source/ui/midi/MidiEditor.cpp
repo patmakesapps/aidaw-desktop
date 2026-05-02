@@ -401,7 +401,7 @@ void MidiEditor::resized()
     tools.removeFromLeft(6);
     btnEddie   .setBounds(tools.removeFromLeft(74));
 
-    r.removeFromTop(8);
+    r.removeFromTop(14);
     view.setBounds(r);
     refreshContentSize();
 

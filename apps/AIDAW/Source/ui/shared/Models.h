@@ -13,11 +13,16 @@ static inline juce::String U8(const char8_t* s) {
 #endif
 
 struct ClipModel {
+    enum class Kind { Audio, MidiLoop };
+
     juce::String id;
+    Kind kind { Kind::Audio };
     double startBeats  = 0.0;   // timeline position
     double lengthBeats = 4.0;   // duration on timeline
     double offsetBeats = 0.0;   // starting offset inside source
     juce::File file;
+    uint32 loopId { 0 };
+    juce::String label;
 };
 
 struct TrackModel {

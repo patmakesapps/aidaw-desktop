@@ -23,6 +23,22 @@ TopBar::TopBar()
     }
     setMode(AppMode::Composer, false);
 
+    for (auto* b : { &playbackPattern, &playbackSong })
+    {
+        b->setClickingTogglesState(true);
+        b->setRadioGroupId(0xA1DB, juce::dontSendNotification);
+        b->addListener(this);
+        addAndMakeVisible(*b);
+    }
+    setPlaybackMode(PlaybackMode::Song, false);
+
+    for (auto* b : { &openProject, &saveProject })
+    {
+        b->addListener(this);
+        b->setWantsKeyboardFocus(false);
+        addAndMakeVisible(*b);
+    }
+
     // Title
     title.setText("AIDAW", juce::dontSendNotification);
     title.setJustificationType(juce::Justification::centred);
@@ -107,6 +123,10 @@ void TopBar::refreshColours()
     styleMode(modeComposer);
     styleMode(modeMidi);
     styleMode(modeMixer);
+    styleMode(playbackPattern);
+    styleMode(playbackSong);
+    styleMode(openProject);
+    styleMode(saveProject);
 }
 
 void TopBar::setPlaying (bool shouldPlay)
@@ -147,11 +167,26 @@ void TopBar::setMode (AppMode mode, bool fireCallback)
     modeComposer.setToggleState(mode == AppMode::Composer, juce::dontSendNotification);
     modeMidi    .setToggleState(mode == AppMode::Midi,     juce::dontSendNotification);
     modeMixer   .setToggleState(mode == AppMode::Mixer,    juce::dontSendNotification);
+    playbackPattern.setVisible(mode == AppMode::Midi);
+    playbackSong.setVisible(mode == AppMode::Midi);
+    title.setVisible(mode != AppMode::Midi);
+    resized();
     if (fireCallback && onModeChanged) onModeChanged(mode);
     repaint();
 }
 
 TopBar::AppMode TopBar::getMode() const      { return currentMode; }
+
+void TopBar::setPlaybackMode (PlaybackMode mode, bool fireCallback)
+{
+    currentPlaybackMode = mode;
+    playbackPattern.setToggleState(mode == PlaybackMode::Pattern, juce::dontSendNotification);
+    playbackSong   .setToggleState(mode == PlaybackMode::Song,    juce::dontSendNotification);
+    if (fireCallback && onPlaybackModeChanged) onPlaybackModeChanged(mode);
+    repaint();
+}
+
+TopBar::PlaybackMode TopBar::getPlaybackMode() const { return currentPlaybackMode; }
 
 void TopBar::paint (juce::Graphics& g)
 {
@@ -184,18 +219,31 @@ void TopBar::paint (juce::Graphics& g)
         g.setColour(juce::Colour(Theme::colBtnStroke));
         g.drawRoundedRectangle(seg, 10.0f, 1.0f);
     }
+
+    if (playbackPattern.isVisible() && playbackPattern.getWidth() > 0)
+    {
+        auto seg = juce::Rectangle<int>(playbackPattern.getX(),
+                                        playbackPattern.getY(),
+                                        playbackSong.getRight() - playbackPattern.getX(),
+                                        playbackPattern.getHeight()).toFloat();
+        g.setColour(juce::Colour(Theme::colPillBg));
+        g.fillRoundedRectangle(seg, 10.0f);
+        g.setColour(juce::Colour(Theme::colBtnStroke));
+        g.drawRoundedRectangle(seg, 10.0f, 1.0f);
+    }
 }
 
 void TopBar::resized()
 {
-    const int sidePad = 12;
+    const int sidePad = 18;
     const int vpad = 10;
-    const int gap = 6;
+    const int gap = 8;
     const int btnH = 32;
     const int iconBtnW = 36;
-    const int modeBtnW = 92;
+    const int modeBtnW = 106;
+    const int playbackBtnW = 104;
+    const int fileBtnW = 72;
     const int titleW = 220;
-    const int titleGutter = titleW + 32;
     const int winBtnW = 36;
     const int themeBtnW = 36;
     const int pillW = 240;
@@ -214,6 +262,12 @@ void TopBar::resized()
     r.removeFromRight(14);
 
     // ----- BPM pill + click -----
+    auto fileBlock = r.removeFromRight(fileBtnW * 2 + gap);
+    saveProject.setBounds(fileBlock.removeFromRight(fileBtnW).withHeight(btnH));
+    fileBlock.removeFromRight(gap);
+    openProject.setBounds(fileBlock.removeFromRight(fileBtnW).withHeight(btnH));
+    r.removeFromRight(12);
+
     auto pillBlock = r.removeFromRight(pillW + gap + clickW);
     bpmPillBounds = pillBlock.removeFromLeft(pillW).withHeight(btnH);
 
@@ -235,8 +289,7 @@ void TopBar::resized()
 
     // ----- Title centred -----
     const int cx = getWidth() / 2;
-    juce::Rectangle<int> gutter(cx - titleGutter / 2, r.getY(), titleGutter, r.getHeight());
-    auto leftSide = r.removeFromLeft(juce::jmax(0, gutter.getX() - r.getX()));
+    auto leftSide = r;
     title.setBounds(cx - titleW / 2, vpad, titleW, btnH);
 
     // ----- Left cluster: transport + segmented switcher -----
@@ -251,6 +304,17 @@ void TopBar::resized()
     modeComposer.setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
     modeMidi    .setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
     modeMixer   .setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
+    if (currentMode == AppMode::Midi)
+    {
+        t.removeFromLeft(gap * 3);
+        playbackPattern.setBounds(t.removeFromLeft(playbackBtnW).withHeight(btnH));
+        playbackSong   .setBounds(t.removeFromLeft(playbackBtnW).withHeight(btnH));
+    }
+    else
+    {
+        playbackPattern.setBounds({});
+        playbackSong.setBounds({});
+    }
 }
 
 void TopBar::buttonClicked (juce::Button* button)
@@ -285,6 +349,10 @@ void TopBar::buttonClicked (juce::Button* button)
     else if (button == &modeComposer) { setMode(AppMode::Composer); }
     else if (button == &modeMidi)     { setMode(AppMode::Midi); }
     else if (button == &modeMixer)    { setMode(AppMode::Mixer); }
+    else if (button == &playbackPattern) { setPlaybackMode(PlaybackMode::Pattern); }
+    else if (button == &playbackSong)    { setPlaybackMode(PlaybackMode::Song); }
+    else if (button == &openProject)     { if (onOpenProject) onOpenProject(); }
+    else if (button == &saveProject)     { if (onSaveProject) onSaveProject(); }
 }
 
 void TopBar::showThemeMenu()

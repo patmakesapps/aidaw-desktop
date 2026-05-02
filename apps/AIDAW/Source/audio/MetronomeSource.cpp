@@ -79,6 +79,18 @@ void MetronomeSource::setClickEnabled (bool on)
     clickEnabled = on;
 }
 
+void MetronomeSource::setPlayheadBeats (double beats)
+{
+    if (sampleRate <= 0.0 || samplesPerBeat <= 0.0)
+        return;
+
+    const double wholeBeat = std::floor(juce::jmax(0.0, beats));
+    const double phaseBeats = juce::jlimit(0.0, 1.0, juce::jmax(0.0, beats) - wholeBeat);
+    samplesUntilTick = phaseBeats < 1.0e-6 ? 0 : (int) std::llround((1.0 - phaseBeats) * samplesPerBeat);
+    burstSamplesRemaining = 0;
+    phase = 0.0;
+}
+
 void MetronomeSource::reset()
 {
     samplesUntilTick = 0;

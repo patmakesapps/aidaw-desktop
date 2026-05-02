@@ -2,22 +2,22 @@
 #include <JuceHeader.h>
 #include "LoopsRegistry.h"
 
-// ---------- Modal UI ----------
 class LoopsModal  : public juce::Component,
+                    public juce::DragAndDropContainer,
                     private juce::Button::Listener,
                     private juce::TextEditor::Listener,
                     public  juce::ListBoxModel,
-                    private juce::KeyListener // <-- NEW: so we can addKeyListener(this)
+                    private juce::KeyListener
 {
 public:
     struct Callbacks
     {
-        std::function<void(uint32 /*loopId*/)> onOpenLoop;
-        std::function<void(uint32 /*loopId*/)> onDelete;
-        std::function<void(uint32 /*loopId*/)> onCreate;
+        std::function<void(uint32)> onOpenLoop;
+        std::function<void(uint32)> onDelete;
+        std::function<void(uint32)> onCreate;
+        std::function<void(uint32)> onAddToComposer;
     };
 
-    // green close button just for this dialog
     class GreenCloseLNF : public juce::LookAndFeel_V4
     {
     public:
@@ -36,6 +36,7 @@ public:
             return b;
         }
     };
+
     static GreenCloseLNF& greenLNF() { static GreenCloseLNF lnf; return lnf; }
 
     static void show(juce::Component* parentForCentre, Callbacks cb = {})
@@ -55,65 +56,29 @@ public:
             dw->setLookAndFeel(&greenLNF());
     }
 
-    // --------- JUCE: list model ---------
     int getNumRows() override { return filteredIndexes.size(); }
 
     void listBoxItemDoubleClicked(int row, const juce::MouseEvent&) override
     {
-        if (juce::isPositiveAndBelow(row, filteredIndexes.size()))
-            beginRename(row);
+        if (auto id = loopIdForFilteredRow(row); id != 0 && callbacks.onOpenLoop)
+            callbacks.onOpenLoop(id);
     }
 
-    void paintListBoxItem(int row, juce::Graphics& g, int w, int h, bool rowIsSelected) override
+    void paintListBoxItem(int, juce::Graphics&, int, int, bool) override {}
+
+    juce::Component* refreshComponentForRow(int row, bool rowIsSelected, juce::Component* existing) override
     {
-        const auto& arr = LoopsRegistry::instance().list();
-        if (!juce::isPositiveAndBelow(row, filteredIndexes.size())) return;
+        auto* comp = dynamic_cast<LoopRow*>(existing);
+        if (comp == nullptr)
+            comp = new LoopRow(*this);
 
-        const int realIndex = filteredIndexes[(size_t)row];
-        if (!juce::isPositiveAndBelow(realIndex, arr.size())) return;
-
-        g.setColour(rowIsSelected ? juce::Colour(0xFF1F2937) : juce::Colour(0xFF111111));
-        g.fillRoundedRectangle(juce::Rectangle<float>(2.f, 2.f, (float)w-4.f, (float)h-4.f), 8.f);
-
-        const auto& li = arr.getReference(realIndex);
-        g.setColour(juce::Colours::white);
-        g.setFont(16.f);
-        g.drawText(li.name, 12, 6, w-24, 20, juce::Justification::left);
-
-        g.setColour(juce::Colour(0x77FFFFFF));
-        g.setFont(12.f);
-        g.drawText(li.created.formatted("%Y-%m-%d %H:%M"), 12, 26, w-24, 16, juce::Justification::left);
-
-        // --- Mini piano-roll preview (right) ---
-        const int previewW = 160, margin = 10;
-        juce::Rectangle<int> pr(w - previewW - margin, 6, previewW, h - 12);
-
-        g.setColour(juce::Colour(0xFF0B0F14)); g.fillRoundedRectangle(pr.toFloat(), 6.f);
-        g.setColour(juce::Colour(0x2222C55E)); g.drawRoundedRectangle(pr.toFloat(), 6.f, 1.0f);
-
-        g.setColour(juce::Colour(0x22FFFFFF));
-        for (int i = 1; i < 4; ++i) g.fillRect(juce::Rectangle<int>(pr.getX() + (i * pr.getWidth())/4, pr.getY(), 1, pr.getHeight()));
-
-        const int pitchMin = 36, pitchMax = 84;
-        for (auto& n : li.previewNotes)
-        {
-            const double x0 = juce::jlimit(0.0, 4.0, n.startBeats);
-            const double x1 = juce::jlimit(0.0, 4.0, n.startBeats + juce::jmax(0.05, n.lengthBeats));
-            const int nx = pr.getX() + (int)std::round((x0 / 4.0) * pr.getWidth());
-            const int nw = juce::jmax(3, (int)std::round(((x1 - x0) / 4.0) * pr.getWidth()));
-            const float t = (float)juce::jlimit(0.0, 1.0, (n.pitch - pitchMin) / (double)(pitchMax - pitchMin));
-            const int ny = pr.getY() + pr.getHeight() - 4 - (int)std::round(t * (pr.getHeight() - 8));
-            const int nh = 6;
-
-            g.setColour(juce::Colour(0xFF22C55E).withAlpha(0.85f));
-            g.fillRoundedRectangle(juce::Rectangle<float>((float)nx, (float)ny, (float)nw, (float)nh), 3.f);
-        }
+        comp->update(row, rowIsSelected, loopIdForFilteredRow(row));
+        return comp;
     }
 
-    // --- ctor ---
     LoopsModal(Callbacks cb) : callbacks(std::move(cb))
     {
-        setSize(460, 400);
+        setSize(560, 440);
 
         title.setText("Session Loops", juce::dontSendNotification);
         title.setJustificationType(juce::Justification::centredLeft);
@@ -126,18 +91,33 @@ public:
         addAndMakeVisible(search);
 
         list.setModel(this);
-        list.setRowHeight(60);
+        list.setRowHeight(70);
+        list.addKeyListener(this);
         addAndMakeVisible(list);
-        list.addKeyListener(this); // <-- now valid
 
         btnNew.setButtonText("New Loop");
         btnOpen.setButtonText("Open");
+        btnAdd.setButtonText("Add");
         btnDelete.setButtonText("Delete");
         btnClose.setButtonText("Close");
-        for (auto* b : { &btnNew, &btnOpen, &btnDelete, &btnClose })
+        for (auto* b : { &btnNew, &btnOpen, &btnAdd, &btnDelete, &btnClose })
         { b->addListener(this); addAndMakeVisible(b); }
 
         refreshFilter();
+    }
+
+    void openLoop(uint32 id)
+    {
+        if (id != 0 && callbacks.onOpenLoop)
+            callbacks.onOpenLoop(id);
+    }
+
+    void beginDrag(uint32 id, juce::Component* source)
+    {
+        if (id == 0 || source == nullptr)
+            return;
+
+        startDragging("aidaw-loop:" + juce::String(id), source);
     }
 
     void paint(juce::Graphics& g) override
@@ -154,19 +134,110 @@ public:
         r.removeFromTop(8);
         search.setBounds(r.removeFromTop(28));
         r.removeFromTop(8);
-        list.setBounds(r.removeFromTop(getHeight() - 140));
+        list.setBounds(r.removeFromTop(getHeight() - 144));
 
         auto row = r.removeFromBottom(36);
         btnNew.setBounds   (row.removeFromLeft(110)); row.removeFromLeft(8);
         btnOpen.setBounds  (row.removeFromLeft(82));  row.removeFromLeft(8);
+        btnAdd.setBounds   (row.removeFromLeft(82));  row.removeFromLeft(8);
         btnDelete.setBounds(row.removeFromLeft(82));
         btnClose.setBounds (r.removeFromBottom(32).removeFromRight(80));
 
-        if (renameEditor && renamingRow >= 0) positionRenameEditor(renamingRow);
+        if (renameEditor && renamingRow >= 0)
+            positionRenameEditor(renamingRow);
     }
 
 private:
-    // --- KeyListener (for F2 rename when list has focus) ---
+    class LoopRow : public juce::Component
+    {
+    public:
+        explicit LoopRow(LoopsModal& ownerIn) : owner(ownerIn) {}
+
+        void update(int rowIn, bool selectedIn, uint32 idIn)
+        {
+            row = rowIn;
+            selected = selectedIn;
+            loopId = idIn;
+            repaint();
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            const auto* li = LoopsRegistry::instance().get(loopId);
+            if (li == nullptr)
+                return;
+
+            auto r = getLocalBounds().reduced(4, 4);
+            g.setColour(selected ? juce::Colour(0xFF1F2937) : juce::Colour(0xFF111111));
+            g.fillRoundedRectangle(r.toFloat(), 8.f);
+
+            g.setColour(juce::Colours::white);
+            g.setFont(16.f);
+            g.drawText(li->name, 14, 8, getWidth() - 220, 22, juce::Justification::left);
+
+            g.setColour(juce::Colour(0x77FFFFFF));
+            g.setFont(12.f);
+            g.drawText(juce::String(li->lengthBeats, 1) + " beats  |  " + li->created.formatted("%Y-%m-%d %H:%M"),
+                       14, 32, getWidth() - 220, 18, juce::Justification::left);
+
+            auto pr = previewRect();
+            g.setColour(juce::Colour(0xFF0B0F14));
+            g.fillRoundedRectangle(pr.toFloat(), 6.f);
+            g.setColour(juce::Colour(0x3322C55E));
+            g.drawRoundedRectangle(pr.toFloat(), 6.f, 1.0f);
+
+            g.setColour(juce::Colour(0x22FFFFFF));
+            const int divisions = juce::jmax(1, (int) std::ceil(li->lengthBeats));
+            for (int i = 1; i < divisions; ++i)
+            {
+                const int x = pr.getX() + (int) std::round((i / (double) divisions) * pr.getWidth());
+                g.fillRect(x, pr.getY(), 1, pr.getHeight());
+            }
+
+            const int pitchMin = 36;
+            const int pitchMax = 84;
+            for (auto& n : li->previewNotes)
+            {
+                const double length = juce::jmax(1.0, li->lengthBeats);
+                const double x0 = juce::jlimit(0.0, length, n.startBeats);
+                const double x1 = juce::jlimit(0.0, length, n.startBeats + juce::jmax(0.05, n.lengthBeats));
+                const int nx = pr.getX() + (int)std::round((x0 / length) * pr.getWidth());
+                const int nw = juce::jmax(3, (int)std::round(((x1 - x0) / length) * pr.getWidth()));
+                const float t = (float)juce::jlimit(0.0, 1.0, (n.pitch - pitchMin) / (double)(pitchMax - pitchMin));
+                const int ny = pr.getY() + pr.getHeight() - 4 - (int)std::round(t * (pr.getHeight() - 8));
+
+                g.setColour(juce::Colour(0xFF22C55E).withAlpha(0.85f));
+                g.fillRoundedRectangle(juce::Rectangle<float>((float)nx, (float)ny, (float)nw, 6.0f), 3.f);
+            }
+        }
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            owner.list.selectRow(row);
+            dragStart = e.getPosition();
+            if (previewRect().contains(e.getPosition()))
+                owner.openLoop(loopId);
+        }
+
+        void mouseDrag(const juce::MouseEvent& e) override
+        {
+            if (e.getPosition().getDistanceFrom(dragStart) > 8)
+                owner.beginDrag(loopId, this);
+        }
+
+    private:
+        juce::Rectangle<int> previewRect() const
+        {
+            return { getWidth() - 190, 8, 176, getHeight() - 16 };
+        }
+
+        LoopsModal& owner;
+        int row { -1 };
+        uint32 loopId { 0 };
+        bool selected { false };
+        juce::Point<int> dragStart { 0, 0 };
+    };
+
     bool keyPressed(const juce::KeyPress& k, juce::Component*) override
     {
         if (k.getKeyCode() == juce::KeyPress::F2Key)
@@ -179,7 +250,6 @@ private:
         return false;
     }
 
-    // --- actions ---
     void buttonClicked(juce::Button* b) override
     {
         if (b == &btnNew)
@@ -188,11 +258,16 @@ private:
             uint32 id = LoopsRegistry::instance().createLoop(base);
             refreshFilter();
             if (callbacks.onCreate) callbacks.onCreate(id);
+            if (callbacks.onOpenLoop) callbacks.onOpenLoop(id);
         }
         else if (b == &btnOpen)
         {
+            openLoop(selectedLoopId());
+        }
+        else if (b == &btnAdd)
+        {
             auto id = selectedLoopId();
-            if (id != 0 && callbacks.onOpenLoop) callbacks.onOpenLoop(id);
+            if (id != 0 && callbacks.onAddToComposer) callbacks.onAddToComposer(id);
         }
         else if (b == &btnDelete)
         {
@@ -216,10 +291,10 @@ private:
     void textEditorEscapeKeyPressed(juce::TextEditor& te) override { commitRename(te.getText(), false); }
     void textEditorFocusLost(juce::TextEditor& te) override        { commitRename(te.getText(), true); }
 
-    // --- helpers ---
-    uint32 selectedLoopId() const
+    uint32 selectedLoopId() const { return loopIdForFilteredRow(list.getSelectedRow()); }
+
+    uint32 loopIdForFilteredRow(int row) const
     {
-        auto row = list.getSelectedRow();
         if (!juce::isPositiveAndBelow(row, filteredIndexes.size())) return 0;
         const int realIndex = filteredIndexes[(size_t)row];
         const auto& arr = LoopsRegistry::instance().list();
@@ -238,14 +313,13 @@ private:
 
         list.updateContent();
         if (filteredIndexes.size() > 0)
-            list.selectRow(juce::jlimit(0, filteredIndexes.size()-1, list.getSelectedRow()));
+            list.selectRow(juce::jlimit(0, filteredIndexes.size() - 1, list.getSelectedRow()));
         else
             list.deselectAllRows();
 
         list.repaint();
     }
 
-    // ----- inline rename -----
     void beginRename(int filteredRow)
     {
         renamingRow = filteredRow;
@@ -273,9 +347,9 @@ private:
         auto rowY = list.getRowPosition(filteredRow, true).getY();
         const int h = list.getRowHeight();
         auto bounds = list.getBoundsInParent().withY(list.getY() + rowY).withHeight(h);
-        bounds = bounds.reduced(14, 0);
-        renameEditor->setBounds(bounds.removeFromLeft(bounds.getWidth() - 180)
-                                      .withTrimmedTop(6).withHeight(22));
+        bounds = bounds.reduced(16, 0);
+        renameEditor->setBounds(bounds.removeFromLeft(bounds.getWidth() - 210)
+                                      .withTrimmedTop(9).withHeight(24));
         renameEditor->toFront(false);
     }
 
@@ -299,11 +373,11 @@ private:
         renamingRow = -1;
     }
 
-    Callbacks         callbacks;
-    juce::Label       title;
-    juce::TextEditor  search;
-    juce::ListBox     list;
-    juce::TextButton  btnNew, btnOpen, btnDelete, btnClose;
+    Callbacks callbacks;
+    juce::Label title;
+    juce::TextEditor search;
+    juce::ListBox list;
+    juce::TextButton btnNew, btnOpen, btnAdd, btnDelete, btnClose;
 
     std::unique_ptr<juce::TextEditor> renameEditor;
     int renamingRow { -1 };

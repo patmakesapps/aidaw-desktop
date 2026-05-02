@@ -1,5 +1,6 @@
 #include "Arranger.h"
 #include "ArrangerFileUtils.h"
+#include "../loops/LoopsRegistry.h"
 #include "../shared/ThemeManager.h"
 #include <algorithm>
 #include <cmath>
@@ -62,8 +63,7 @@ Arranger::Arranger()
     setBPM(120.0);
     setSnap(true);
 
-    // Match MIDI editor zoom range for parity
-    setZoomLimits(8.0, 4096.0);
+    setZoomLimits(1.0, 4096.0);
 
     // Seed default lanes exactly once
     ensureDefaultTracks(kDefaultTrackCount);
@@ -74,6 +74,7 @@ Arranger::Arranger()
 
 Arranger::~Arranger()
 {
+    stopTimer();
     ThemeManager::get().removeChangeListener(this);
     for (auto* b : { &btnPointer, &btnSlice, &btnResize, &btnZoomTool,
                      &btnFrameAll, &btnSnap, &btnZoomIn, &btnZoomOut, &btnLoopIcon })
@@ -143,11 +144,11 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
     if (files.isEmpty()) return;
     pushUndo();
 
-    const int contentX = x + view.getViewPositionX();
+    const int contentX = x - view.getX() + view.getViewPositionX();
     const double dropBeats = canvas.beatsFromX(contentX);
     const double startBeats = snapToGrid ? std::round(dropBeats) : dropBeats;
 
-    const int yContent = y + view.getViewPositionY();
+    const int yContent = y - view.getY() + view.getViewPositionY();
     int laneIdx = laneIndexFromYAllowNew(yContent);
 
     for (int i=0;i<files.size();++i)
@@ -160,6 +161,7 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
 
         ClipModel clip;
         clip.id = juce::Uuid().toString();
+        clip.kind = ClipModel::Kind::Audio;
         clip.file = f;
         clip.startBeats  = startBeats;
         clip.lengthBeats = ArrangerFileUtils::estimateBeatsFromFile(fm, f, bpmValue);
@@ -174,6 +176,31 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
 
     refreshAll();
     if (onProjectChanged) onProjectChanged();
+}
+
+bool Arranger::isInterestedInDragSource(const SourceDetails& dragSourceDetails)
+{
+    return dragSourceDetails.description.toString().startsWith("aidaw-loop:");
+}
+
+void Arranger::itemDropped(const SourceDetails& dragSourceDetails)
+{
+    const auto desc = dragSourceDetails.description.toString();
+    if (! desc.startsWith("aidaw-loop:"))
+        return;
+
+    const uint32 loopId = (uint32) desc.fromFirstOccurrenceOf(":", false, false).getLargeIntValue();
+    if (loopId == 0)
+        return;
+
+    const auto local = dragSourceDetails.localPosition;
+    const int contentX = local.x - view.getX() + view.getViewPositionX();
+    const int contentY = local.y - view.getY() + view.getViewPositionY();
+    double beat = canvas.beatsFromX(contentX);
+    if (snapToGrid)
+        beat = std::round(beat);
+
+    addMidiLoopClip(loopId, juce::jmax(0.0, beat), laneIndexFromYAllowNew(contentY));
 }
 
 void Arranger::paint(juce::Graphics& g)
@@ -252,6 +279,70 @@ void Arranger::addTrack(const juce::String& name, bool push)
     TrackModel t; t.id = juce::Uuid().toString(); t.name = name;
     tracks.emplace_back(std::move(t));
     refreshAll();
+}
+
+void Arranger::addMidiLoopClip(uint32 loopId, double startBeats, int laneIndex)
+{
+    const auto* loop = LoopsRegistry::instance().get(loopId);
+    if (loop == nullptr)
+        return;
+
+    pushUndo();
+
+    while (laneIndex >= (int) tracks.size())
+        addTrack("MIDI " + juce::String((int) tracks.size() + 1), false);
+
+    if (tracks.empty())
+        addTrack("MIDI 1", false);
+
+    laneIndex = juce::jlimit(0, (int) tracks.size() - 1, laneIndex);
+    auto& lane = tracks[(size_t) laneIndex];
+    if (lane.name.startsWith("Track ") || lane.name.startsWith("Audio"))
+        lane.name = "MIDI";
+
+    ClipModel clip;
+    clip.id = juce::Uuid().toString();
+    clip.kind = ClipModel::Kind::MidiLoop;
+    clip.loopId = loopId;
+    clip.label = loop->name;
+    clip.startBeats = juce::jmax(0.0, startBeats);
+    clip.lengthBeats = juce::jmax(1.0, loop->lengthBeats);
+    clip.offsetBeats = 0.0;
+
+    lane.clips.push_back(std::move(clip));
+    selectedClip = &lane.clips.back();
+    setSelectedLane(laneIndex);
+    refreshAll();
+    if (onProjectChanged) onProjectChanged();
+}
+
+void Arranger::removeClipsForLoop(uint32 loopId)
+{
+    bool changed = false;
+    pushUndo();
+    for (auto& track : tracks)
+    {
+        const auto before = track.clips.size();
+        track.clips.erase(std::remove_if(track.clips.begin(), track.clips.end(),
+                                         [loopId](const ClipModel& clip)
+                                         {
+                                             return clip.kind == ClipModel::Kind::MidiLoop
+                                                 && clip.loopId == loopId;
+                                         }),
+                          track.clips.end());
+        changed = changed || before != track.clips.size();
+    }
+
+    if (! changed)
+    {
+        if (!undoStack.empty())
+            undoStack.pop_back();
+        return;
+    }
+
+    selectedClip = nullptr;
+    refreshAll();
+    if (onProjectChanged) onProjectChanged();
 }
 
 void Arranger::duplicateTrack(size_t idx)
@@ -400,6 +491,93 @@ void Arranger::restorePreZoomView()
     repaint();
 }
 
+void Arranger::autoScrollDuringDrag()
+{
+    if (!dragAutoScrollActive || activeClip == nullptr || dragging == DragMode::None)
+        return;
+
+    const int edge = 44;
+    const int step = 16;
+    auto p = view.getViewPosition();
+    const int maxX = juce::jmax(0, content.getWidth() - view.getWidth());
+    const int maxY = juce::jmax(0, content.getHeight() - view.getHeight());
+
+    int dx = 0;
+    int dy = 0;
+    if (lastDragViewportPos.x < edge) dx = -step;
+    else if (lastDragViewportPos.x > view.getWidth() - edge) dx = step;
+
+    if (lastDragViewportPos.y < edge) dy = -step;
+    else if (lastDragViewportPos.y > view.getHeight() - edge) dy = step;
+
+    if (dx == 0 && dy == 0)
+        return;
+
+    const auto old = p;
+    p.setX(juce::jlimit(0, maxX, p.x + dx));
+    p.setY(juce::jlimit(0, maxY, p.y + dy));
+    if (p == old)
+        return;
+
+    view.setViewPosition(p);
+    updateActiveClipDragAt({ p.x + lastDragViewportPos.x, p.y + lastDragViewportPos.y });
+}
+
+void Arranger::updateActiveClipDragAt(juce::Point<int> pos)
+{
+    if (!activeClip)
+        return;
+
+    const int dxPx = pos.x - dragStartPos.x;
+    const double dxBeats = dxPx / pixelsPerBeat;
+    auto& cm = activeClip->model;
+
+    if (dragging == DragMode::Move)
+    {
+        double preview = clipStartBeatsAtDown + dxBeats;
+        preview = juce::jlimit(0.0, 100000.0, preview);
+
+        pendingMoveStartBeats = preview;
+        pendingMoveValid = true;
+
+        int hoverLane = laneIndexFromYAllowNew(pos.y);
+        targetLaneIndex = juce::jlimit(0, (int)tracks.size(), hoverLane);
+
+        const int laneH = laneHeight();
+        const int y0 = laneTop();
+        const int previewLaneY = y0 + juce::jmin(targetLaneIndex, (int)tracks.size()-1) * laneH + 10;
+        const int w = (int)std::round(cm.lengthBeats * pixelsPerBeat);
+        const int x = canvas.xFromBeats(preview);
+
+        activeClip->setBounds(x, previewLaneY, juce::jmax(24, w), laneH - 20);
+        return;
+    }
+
+    if (dragging == DragMode::Left)
+    {
+        double newStart = clipStartBeatsAtDown + dxBeats;
+        double newLen = clipLenBeatsAtDown - dxBeats;
+        if (snapToGrid) { newStart = std::round(newStart); newLen = std::round(newLen); }
+        newStart = juce::jmax(0.0, newStart);
+        newLen = juce::jmax(1.0, newLen);
+
+        const double delta = newStart - clipStartBeatsAtDown;
+        cm.startBeats = newStart;
+        cm.lengthBeats = newLen;
+        cm.offsetBeats = juce::jmax(0.0, clipOffsetBeatsAtDown + delta);
+    }
+    else if (dragging == DragMode::Right)
+    {
+        double newLen = clipLenBeatsAtDown + dxBeats;
+        if (snapToGrid) newLen = std::round(newLen);
+        cm.lengthBeats = juce::jmax(1.0, newLen);
+    }
+
+    extendContentToMaxClip();
+    if (onProjectChanged) onProjectChanged();
+    layoutClips();
+}
+
 /*** viewport/frame ***/
 void Arranger::frameAll()
 {
@@ -409,17 +587,32 @@ void Arranger::frameAll()
             maxEndBeats = std::max(maxEndBeats, c.startBeats + c.lengthBeats);
 
     const int viewportW = juce::jmax(1, view.getWidth() - TrackLaneComponent::headerWidth - 40);
-    const double ppbNow = juce::jlimit(10.0, 300.0, (double)viewportW / juce::jmax(8.0, maxEndBeats));
+    const double ppbNow = juce::jlimit(1.0, 300.0, (double)viewportW / juce::jmax(8.0, maxEndBeats));
 
     ppbAt120      = ppbNow * (bpmValue / 120.0);
     zoomScale     = 1.0;
     pixelsPerBeat = juce::jlimit(minPixelsPerBeat, maxPixelsPerBeat,
                      ppbAt120 * (120.0 / bpmValue) * zoomScale);
 
-    extendContentToMaxClip();
+    const int neededW = TrackLaneComponent::headerWidth
+                      + (int) std::ceil(maxEndBeats * pixelsPerBeat) + 220;
+    content.setSize(juce::jmax(view.getWidth(), neededW), content.getHeight());
+    canvas.setBounds(0, 0, content.getWidth(), content.getHeight());
     layoutClips();
     view.setViewPosition(0, view.getViewPositionY());
     repaint();
+}
+
+void Arranger::timerCallback()
+{
+    autoScrollDuringDrag();
+}
+
+void Arranger::refreshFromModel()
+{
+    selectedClip = nullptr;
+    selectedLaneIndex = -1;
+    refreshAll();
 }
 
 /*** internals ***/
@@ -684,6 +877,13 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
 
     if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
     {
+        if (cc->model.kind == ClipModel::Kind::MidiLoop && e.getNumberOfClicks() >= 2)
+        {
+            if (onOpenMidiLoop)
+                onOpenMidiLoop(cc->model.loopId);
+            return;
+        }
+
         // right-click deletes the clip (any tool)
         if (e.mods.isRightButtonDown())
         {
@@ -735,6 +935,9 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
         }
 
         dragStartPos          = e.getEventRelativeTo(&content).getPosition();
+        lastDragViewportPos   = e.getEventRelativeTo(&view).getPosition();
+        dragAutoScrollActive  = true;
+        startTimerHz(60);
         clipStartBeatsAtDown  = cc->model.startBeats;
         clipLenBeatsAtDown    = cc->model.lengthBeats;
         clipOffsetBeatsAtDown = cc->model.offsetBeats;
@@ -801,54 +1004,9 @@ void Arranger::mouseDrag(const juce::MouseEvent& e)
     if (!activeClip) return;
 
     const auto pos = e.getEventRelativeTo(&content).getPosition();
-    const int dxPx = pos.x - dragStartPos.x;
-    const double dxBeats = dxPx / pixelsPerBeat;
-
-    auto& cm = activeClip->model;
-
-    if (dragging == DragMode::Move)
-    {
-        double preview = clipStartBeatsAtDown + dxBeats; // live preview; snap on commit
-        preview = juce::jlimit(0.0, 100000.0, preview);
-
-        pendingMoveStartBeats = preview;
-        pendingMoveValid = true;
-
-        int hoverLane   = laneIndexFromYAllowNew(pos.y);
-        targetLaneIndex = juce::jlimit(0, (int)tracks.size(), hoverLane);
-
-        const int laneH = laneHeight();
-        const int y0 = laneTop();
-        const int previewLaneY = y0 + juce::jmin(targetLaneIndex, (int)tracks.size()-1) * laneH + 10;
-        const int w     = (int)std::round(cm.lengthBeats * pixelsPerBeat);
-        const int x     = canvas.xFromBeats(preview);
-
-        activeClip->setBounds(x, previewLaneY, juce::jmax(24, w), laneH - 20);
-        return;
-    }
-    else if (dragging == DragMode::Left)
-    {
-        double newStart = clipStartBeatsAtDown + dxBeats;
-        double newLen   = clipLenBeatsAtDown - dxBeats;
-        if (snapToGrid) { newStart = std::round(newStart); newLen = std::round(newLen); }
-        newStart = juce::jmax(0.0, newStart);
-        newLen   = juce::jmax(1.0, newLen);
-
-        const double delta = newStart - clipStartBeatsAtDown;
-        cm.startBeats  = newStart;
-        cm.lengthBeats = newLen;
-        cm.offsetBeats = juce::jmax(0.0, clipOffsetBeatsAtDown + delta);
-    }
-    else if (dragging == DragMode::Right)
-    {
-        double newLen = clipLenBeatsAtDown + dxBeats;
-        if (snapToGrid) newLen = std::round(newLen);
-        cm.lengthBeats = juce::jmax(1.0, newLen);
-    }
-
-    extendContentToMaxClip();
-    if (onProjectChanged) onProjectChanged();
-    layoutClips();
+    lastDragViewportPos = e.getEventRelativeTo(&view).getPosition();
+    dragAutoScrollActive = true;
+    updateActiveClipDragAt(pos);
 }
 
 void Arranger::mouseUp(const juce::MouseEvent& e)
@@ -987,6 +1145,8 @@ void Arranger::mouseUp(const juce::MouseEvent& e)
 
     activeClip = nullptr;
     dragging = DragMode::None;
+    dragAutoScrollActive = false;
+    stopTimer();
     startLaneIndex = targetLaneIndex = -1;
     pendingMoveValid = false;
 

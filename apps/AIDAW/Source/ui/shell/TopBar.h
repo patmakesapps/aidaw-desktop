@@ -11,6 +11,7 @@ class TopBar : public juce::Component,
 {
 public:
     enum class AppMode { Composer, Midi, Mixer };
+    enum class PlaybackMode { Pattern, Song };
 
     TopBar();
     ~TopBar() override;
@@ -22,8 +23,11 @@ public:
     std::function<void(bool)> onClickToggled;
     std::function<void()> onMinimize;
     std::function<void()> onClose;
+    std::function<void()> onSaveProject;
+    std::function<void()> onOpenProject;
     std::function<void(const juce::String&)> onTitleChanged;
     std::function<void(AppMode)> onModeChanged;
+    std::function<void(PlaybackMode)> onPlaybackModeChanged;
 
     void setPlaying (bool shouldPlay);
     void setRecordArmed (bool armed);
@@ -32,6 +36,8 @@ public:
     void setClickEnabled (bool enabled);
     void setMode (AppMode mode, bool fireCallback = true);
     AppMode getMode() const;
+    void setPlaybackMode (PlaybackMode mode, bool fireCallback = true);
+    PlaybackMode getPlaybackMode() const;
 
     void paint (juce::Graphics& g) override;
     void resized() override;
@@ -54,6 +60,10 @@ private:
     juce::TextButton modeComposer { "Composer" };
     juce::TextButton modeMidi     { "MIDI" };
     juce::TextButton modeMixer    { "Mixer" };
+    juce::TextButton playbackPattern { "Pattern" };
+    juce::TextButton playbackSong    { "Song" };
+    juce::TextButton openProject     { "Open" };
+    juce::TextButton saveProject     { "Save" };
 
     juce::Label title;
 
@@ -77,6 +87,7 @@ private:
     double currentBPM { 120.0 };
     bool clickEnabled { true };
     AppMode currentMode { AppMode::Composer };
+    PlaybackMode currentPlaybackMode { PlaybackMode::Song };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TopBar)
 };

@@ -11,7 +11,9 @@
 
 class Arranger  : public juce::Component,
                   public juce::FileDragAndDropTarget,
+                  public juce::DragAndDropTarget,
                   public juce::ChangeListener,
+                  private juce::Timer,
                   private juce::Button::Listener
 {
 public:
@@ -27,6 +29,7 @@ public:
 
     // open the Loops modal from the Arranger toolbar
     std::function<void()>        onLoopsClicked;
+    std::function<void(uint32)>  onOpenMidiLoop;
 
     // open the Eddie synth panel from the Arranger toolbar
     std::function<void()>        onEddieClicked;
@@ -43,6 +46,9 @@ public:
     void zoomDelta(double steps);                       // fallback (viewport center)
     void zoomDeltaFromWheel(double wheelDelta, int screenX);  // anchor at mouse X (screen)
     void frameAll();
+    void refreshFromModel();
+    void addMidiLoopClip(uint32 loopId, double startBeats = 0.0, int laneIndex = 0);
+    void removeClipsForLoop(uint32 loopId);
 
     // model
     std::vector<TrackModel> tracks;
@@ -50,11 +56,14 @@ public:
     // JUCE
     bool isInterestedInFileDrag(const juce::StringArray&) override;
     void filesDropped(const juce::StringArray&, int x, int y) override;
+    bool isInterestedInDragSource(const SourceDetails& dragSourceDetails) override;
+    void itemDropped(const SourceDetails& dragSourceDetails) override;
 
     void paint(juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress& key) override;
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void timerCallback() override;
 
 private:
     // content layer inside the viewport
@@ -126,6 +135,8 @@ private:
     juce::Point<int> panStartMouse;
     juce::Point<int> panStartView;
     bool playheadDragActive { false };
+    bool dragAutoScrollActive { false };
+    juce::Point<int> lastDragViewportPos { 0, 0 };
 
     // Zoom tool: marquee selection & view restore
     bool selectionActive { false };
@@ -190,6 +201,8 @@ private:
     void applyZoomAtContentX(double steps, int anchorXContent);
     void zoomToSelectionAndCenter(const juce::Rectangle<int>& rectContent);
     void restorePreZoomView();
+    void autoScrollDuringDrag();
+    void updateActiveClipDragAt(juce::Point<int> pos);
 
     // model helpers
     int  trackIndexForClip(ClipModel& cm);

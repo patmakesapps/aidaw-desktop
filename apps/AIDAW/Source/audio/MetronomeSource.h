@@ -15,6 +15,7 @@ public:
     void setBpm (double bpmIn);
     void setPlaying (bool isOn);
     void setClickEnabled (bool on);
+    void setPlayheadBeats (double beats);
     void reset();
 
 private:

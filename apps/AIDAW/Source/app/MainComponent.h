@@ -35,6 +35,13 @@ private:
     void stopTransport();
     void openLoopsModal();
     void openEddiePanel();
+    void openLoopInMidiEditor(uint32 loopId);
+    void addLoopToComposer(uint32 loopId);
+    void rebuildEddiePlaybackNotes();
+    void saveProjectAs();
+    void openProjectFile();
+    bool saveProjectToFile(const juce::File& file);
+    bool loadProjectFromFile(const juce::File& file);
 
     AIDAWLook look;
     TopBar topBar;
@@ -55,6 +62,10 @@ private:
     bool loopEnabled { false };
     double loopStartBeats { 0.0 };
     double loopLengthBeats { 0.0 };
+    uint32 activeLoopId { 0 };
+    TopBar::PlaybackMode playbackMode { TopBar::PlaybackMode::Song };
+    juce::File currentProjectFile;
+    std::unique_ptr<juce::FileChooser> fileChooser;
 
     juce::TooltipWindow tooltip { this, 350 };
 
