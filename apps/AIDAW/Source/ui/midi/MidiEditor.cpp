@@ -401,7 +401,7 @@ void MidiEditor::resized()
     tools.removeFromLeft(6);
     btnEddie   .setBounds(tools.removeFromLeft(74));
 
-    r.removeFromTop(14);
+    r.removeFromTop(22);
     view.setBounds(r);
     refreshContentSize();
 
@@ -417,6 +417,9 @@ void MidiEditor::resized()
             initialPitchCentered = true;
         }
     }
+
+    if (tool != Tool::Draw)
+        setTool(Tool::Draw);
 }
 
 bool MidiEditor::keyPressed(const juce::KeyPress& key)

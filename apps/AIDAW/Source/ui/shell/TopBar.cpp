@@ -240,7 +240,7 @@ void TopBar::resized()
     const int gap = 8;
     const int btnH = 32;
     const int iconBtnW = 36;
-    const int modeBtnW = 106;
+    const int modeBtnW = 114;
     const int playbackBtnW = 104;
     const int fileBtnW = 72;
     const int titleW = 220;
@@ -301,7 +301,8 @@ void TopBar::resized()
     record.setBounds(t.removeFromLeft(iconBtnW).withHeight(btnH));
     t.removeFromLeft(gap * 3);
 
-    modeComposer.setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
+    const auto composerBtn = t.removeFromLeft(modeBtnW).withHeight(btnH);
+    modeComposer.setBounds(composerBtn);
     modeMidi    .setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
     modeMixer   .setBounds(t.removeFromLeft(modeBtnW).withHeight(btnH));
     if (currentMode == AppMode::Midi)

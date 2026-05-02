@@ -124,11 +124,17 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
             rebuildEddiePlaybackNotes();
         }
 
-        arranger.setVisible (mode == TopBar::AppMode::Composer);
-        midi.setVisible (mode == TopBar::AppMode::Midi);
-        mixerUI.setVisible (mode == TopBar::AppMode::Mixer);
-        resized();
-    };
+    arranger.setVisible (mode == TopBar::AppMode::Composer);
+    midi.setVisible (mode == TopBar::AppMode::Midi);
+    mixerUI.setVisible (mode == TopBar::AppMode::Mixer);
+
+    if (mode == TopBar::AppMode::Composer)
+        arranger.setTool(ArrangerTool::Pointer);
+    else if (mode == TopBar::AppMode::Midi)
+        midi.setTool(MidiEditor::Tool::Draw);
+
+    resized();
+};
 
     topBar.onPlaybackModeChanged = [this] (TopBar::PlaybackMode mode)
     {
