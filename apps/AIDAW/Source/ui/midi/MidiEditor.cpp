@@ -9,6 +9,7 @@ MidiEditor::MidiEditor()
     // --- Toolbar ---
     for (juce::TextButton* b : { &btnSelect, &btnDraw, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomOut, &btnZoomIn, &btnLoops })
     { addAndMakeVisible(b); b->addListener(this); b->setWantsKeyboardFocus(false); }
+    addAndMakeVisible(gridMenu);
 
     btnSelect  .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"⬚"))); btnSelect.setTooltip ("Select / Move (1)");
     btnDraw    .setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"✎"))); btnDraw.setTooltip   ("Draw (2)");
@@ -18,6 +19,30 @@ MidiEditor::MidiEditor()
     btnZoomOut .setButtonText("-");                                                           btnZoomOut.setTooltip("Zoom out (-)");
     btnZoomIn  .setButtonText("+");                                                           btnZoomIn.setTooltip ("Zoom in (+)");
     btnLoops   .setButtonText("Loops");                                                       btnLoops.setTooltip  ("Open Loops (create/select)");
+
+    gridMenu.addItem("1 bar", 1);
+    gridMenu.addItem("1/2",   2);
+    gridMenu.addItem("1/4",   3);
+    gridMenu.addItem("1/8",   4);
+    gridMenu.addItem("1/16",  5);
+    gridMenu.addItem("1/32",  6);
+    gridMenu.addItem("1/64",  7);
+    gridMenu.setSelectedId(5, juce::dontSendNotification);
+    gridMenu.setTooltip("Piano roll grid");
+    gridMenu.onChange = [this]
+    {
+        switch (gridMenu.getSelectedId())
+        {
+            case 1: setGridQuantum(4.0); break;
+            case 2: setGridQuantum(2.0); break;
+            case 3: setGridQuantum(1.0); break;
+            case 4: setGridQuantum(0.5); break;
+            case 5: setGridQuantum(0.25); break;
+            case 6: setGridQuantum(0.125); break;
+            case 7: setGridQuantum(0.0625); break;
+            default: setGridQuantum(0.25); break;
+        }
+    };
 
     for (auto* b : { &btnSelect, &btnDraw, &btnZoomTool }) b->setClickingTogglesState(true);
     btnSnap.setClickingTogglesState(true); btnSnap.setToggleState(true, juce::dontSendNotification);
@@ -40,18 +65,25 @@ MidiEditor::MidiEditor()
     // Model refs
     c->notes           = &notes;
     c->snapToGridRef   = &snapToGrid;
+    c->gridQuantumBeats = &gridQuantumBeats;
     c->pixelsPerBeat   = &pixelsPerBeat;
     c->playheadBeats   = &playheadBeats;
     c->loopEnabled     = &loopEnabled;
     c->loopStartBeats  = &loopStartBeats;
     c->loopLengthBeats = &loopLengthBeats;
+    c->onPreviewNote   = [this] (int pitch, int velocity)
+    {
+        if (onPreviewNote)
+            onPreviewNote(pitch, velocity);
+    };
 
     // Defaults
     setBPM(120.0);
     setSnap(true);
     setHorizontalZoom(8.0);
-    setPitchView(48, 84);
-    setBeatsExtent(64.0);
+    setGridQuantum(0.25);
+    setPitchView(0, 127);
+    setBeatsExtent(256.0);
 
     // allow content to grow when you drag notes or loop to the right
     c->extendToPixelRight = [this](int pxRight) {
@@ -108,10 +140,17 @@ void MidiEditor::setSnap(bool on)
     repaint();
 }
 
+void MidiEditor::setGridQuantum(double beats)
+{
+    gridQuantumBeats = juce::jlimit(0.0625, 4.0, beats);
+    if (auto* c = dynamic_cast<Content*>(view.getViewedComponent()))
+        c->repaint();
+}
+
 void MidiEditor::setHorizontalZoom(double beatsPerScreen)
 {
     beatsPerScreen = juce::jlimit(1.0, 64.0, beatsPerScreen);
-    const int vw = juce::jmax(1, view.getWidth());
+    const int vw = juce::jmax(800, view.getWidth());
     const double desiredPPB = (double)vw / beatsPerScreen;
     pixelsPerBeat = juce::jlimit(minPPB, maxPPB, desiredPPB);
     zoomScale     = pixelsPerBeat / (ppbAt120 * (120.0 / bpmValue));
@@ -229,6 +268,7 @@ void MidiEditor::resized()
     btnZoomOut .setBounds(tools.removeFromLeft(36)); tools.removeFromLeft(4);
     btnZoomIn  .setBounds(tools.removeFromLeft(36));
     tools.removeFromLeft(8); // small gap after '+'
+    gridMenu   .setBounds(tools.removeFromLeft(82)); tools.removeFromLeft(8);
     btnLoops   .setBounds(tools.removeFromLeft(72)); // "Loops" button just to the right of '+'
 
     view.setBounds(r);
@@ -307,7 +347,7 @@ void MidiEditor::refreshContentSize()
     for (auto& n : notes) maxEnd = std::max(maxEnd, n.startBeats + n.lengthBeats + 4.0);
 
     const int widthFromBeats = Theme::keyWidth + (int)std::ceil(maxEnd * pixelsPerBeat);
-    const int minOpenWidth   = juce::jmax(1600, view.getWidth() + 900);
+    const int minOpenWidth   = juce::jmax(3200, view.getWidth() + 2400);
     const int width = juce::jmax(widthFromBeats, minOpenWidth);
 
     c->rowHeight = Theme::rowHeight;
@@ -396,7 +436,7 @@ void MidiEditor::Content::syncNoteComponents()
 
         const auto body = juce::Colour((i % 2 == 0) ? Theme::colNoteA : Theme::colNoteB);
         const auto rim  = juce::Colour(body).brighter(Theme::noteBorderGain);
-        noteComps[i]->setSelected(false);
+        noteComps[i]->setSelected(selection.contains((int) i));
         noteComps[i]->setColors(juce::Colour(body).darker(0.30f), rim);
     }
 }
@@ -521,17 +561,24 @@ void MidiEditor::Content::paintGrid(juce::Graphics& g)
         else       { g.setColour(juce::Colour(Theme::colGridBeat)); g.fillRect(x, Theme::rulerH, 1, getHeight() - Theme::rulerH); }
     }
 
-    const int subDivs = Theme::subDivisions(ppbVal);
-    if (subDivs > 0)
+    const double requestedQuantum = gridQuantumBeats ? *gridQuantumBeats : 0.25;
+    double visibleQuantum = juce::jlimit(0.0625, 4.0, requestedQuantum);
+    while (visibleQuantum * ppbVal < 5.0 && visibleQuantum < 4.0)
+        visibleQuantum *= 2.0;
+
+    if (visibleQuantum < 4.0)
     {
         g.setColour(juce::Colour(Theme::colGridSub));
-        for (int beat = 0; beat <= totalBeats; ++beat)
-            for (int s = 1; s < subDivs; ++s)
-            {
-                const double frac = (double) s / (double) subDivs;
-                const int x = Theme::keyWidth + (int) std::round((beat + frac) * ppbVal);
-                g.fillRect(x, Theme::rulerH, 1, getHeight() - Theme::rulerH);
-            }
+        const int steps = (int) std::ceil(totalBeats / visibleQuantum);
+        for (int i = 1; i <= steps; ++i)
+        {
+            const double beat = i * visibleQuantum;
+            if (std::abs(beat - std::round(beat)) < 0.0001)
+                continue;
+
+            const int x = Theme::keyWidth + (int) std::round(beat * ppbVal);
+            g.fillRect(x, Theme::rulerH, 1, getHeight() - Theme::rulerH);
+        }
     }
 }
 
@@ -609,6 +656,12 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    if (p.x < Theme::keyWidth && p.y >= Theme::rulerH && p.y < getHeight() - Theme::velocityH)
+    {
+        auditionKeyAt(p);
+        return;
+    }
+
     // Ruler: loop drag (no modifier)
     if (p.y < Theme::rulerH)
     {
@@ -652,7 +705,10 @@ void MidiEditor::Content::mouseDown(const juce::MouseEvent& e)
         double start = snapToGrid(beatsFromX(p.x));
         createdStartBeats = start;
 
-        MidiNote n; n.pitch = pitch; n.startBeats = start; n.lengthBeats = juce::jmax(0.25, snapQuantum() > 0 ? snapQuantum() : 0.25);
+        MidiNote n;
+        n.pitch = pitch;
+        n.startBeats = start;
+        n.lengthBeats = juce::jmax(0.03125, rememberedNoteLengthBeats);
         n.uid = juce::Random::getSystemRandom().nextInt64();
         notes->push_back(n);
         createdIndex = (int)notes->size() - 1;
@@ -681,6 +737,12 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
     {
         auto dv = p - panStart;
         setParentViewportPos({ juce::jmax(0, panViewStart.x - dv.x), juce::jmax(0, panViewStart.y - dv.y) });
+        return;
+    }
+
+    if (auditionedPitch >= 0)
+    {
+        auditionKeyAt(p);
         return;
     }
 
@@ -727,6 +789,7 @@ void MidiEditor::Content::mouseDrag(const juce::MouseEvent& e)
         double end = snapToGrid(beatsFromX(p.x));
         if (end <= createdStartBeats) end = createdStartBeats + (snapQuantum() > 0 ? snapQuantum() : 0.25);
         n.lengthBeats = juce::jmax(0.03125, end - createdStartBeats);
+        rememberedNoteLengthBeats = n.lengthBeats;
         int rowDelta = (p.y - (Theme::rulerH + pitchToRow(n.pitch)*rowHeight + rowHeight/2)) / rowHeight;
         n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, n.pitch - rowDelta);
         if (onNotesChanged) onNotesChanged();
@@ -769,6 +832,7 @@ void MidiEditor::Content::mouseUp(const juce::MouseEvent&)
     velDragActive = false;
     creatingNote = false;
     createdIndex = -1;
+    auditionedPitch = -1;
 
     // reset loop drag state
     loopDragMode = LoopDrag::None;
@@ -842,7 +906,7 @@ double MidiEditor::Content::snapQuantum() const
 {
     const bool snap = (*snapToGridRef && !bypassSnap);
     if (!snap) return 0.0;
-    return Theme::snapQuantumBeats(ppb(), true);
+    return gridQuantumBeats ? *gridQuantumBeats : 0.25;
 }
 double MidiEditor::Content::snapToGrid(double beats) const
 {
@@ -886,6 +950,23 @@ int MidiEditor::Content::indexAtPointNoteArea(juce::Point<int> p) const
         if (d < bestDist && d < 2.0) { bestDist = d; best = i; }
     }
     return best;
+}
+
+void MidiEditor::Content::auditionKeyAt(juce::Point<int> p)
+{
+    if (!onPreviewNote)
+        return;
+
+    if (p.x >= Theme::keyWidth || p.y < Theme::rulerH || p.y >= getHeight() - Theme::velocityH)
+        return;
+
+    const int row = juce::jlimit(0, totalRows - 1, (p.y - Theme::rulerH) / rowHeight);
+    const int pitch = rowToPitch(row);
+    if (pitch == auditionedPitch)
+        return;
+
+    auditionedPitch = pitch;
+    onPreviewNote(pitch, 105);
 }
 
 void MidiEditor::Content::zoomToRect(juce::Rectangle<int> rect)
@@ -977,6 +1058,7 @@ void MidiEditor::Content::handleNoteMouseDown(uint32 uid, juce::Point<int> pInCo
     selection.clearQuick();
     selection.add(idx);
     didSelect = true;
+    rememberedNoteLengthBeats = juce::jmax(0.03125, (*notes)[(size_t) idx].lengthBeats);
 
     dragAnchorContent = pInContent;
 
@@ -1017,6 +1099,7 @@ void MidiEditor::Content::handleNoteMouseDrag(uint32 /*uid*/, juce::Point<int> p
             double nl = snapToGrid(lenAtDown  [si] - dxBeats);
             n.startBeats  = juce::jmax(0.0, ns);
             n.lengthBeats = juce::jmax(0.03125, nl);
+            rememberedNoteLengthBeats = n.lengthBeats;
             n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, pitchAtDown[si] - rowDelta);
         }
     }
@@ -1027,6 +1110,7 @@ void MidiEditor::Content::handleNoteMouseDrag(uint32 /*uid*/, juce::Point<int> p
             auto& n = (*notes)[(size_t)selection[si]];
             double nl = snapToGrid(lenAtDown[si] + dxBeats);
             n.lengthBeats = juce::jmax(0.03125, nl);
+            rememberedNoteLengthBeats = n.lengthBeats;
             n.pitch = juce::jlimit(topPitch-totalRows+1, topPitch, pitchAtDown[si] - rowDelta);
         }
     }

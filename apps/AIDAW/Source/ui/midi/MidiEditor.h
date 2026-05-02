@@ -17,6 +17,7 @@ public:
 
     void setBPM(double bpm);
     void setSnap(bool on);
+    void setGridQuantum(double beats);
     void setHorizontalZoom(double beatsPerScreen);
     void setPitchView(int minPitchInclusive, int maxPitchInclusive);
     void setBeatsExtent(double beats);
@@ -40,6 +41,9 @@ public:
 
     // called whenever the editor mutates its note list
     std::function<void(const std::vector<MidiNote>&)> onNotesChanged;
+
+    // called when the user auditions a key in the piano roll
+    std::function<void(int, int)> onPreviewNote;
 
     enum class Tool { Select = 0, Draw = 1, Zoom = 2 };
     void setTool(Tool t);
@@ -66,6 +70,7 @@ private:
         // brushes from the host editor
         std::vector<MidiNote>* notes { nullptr };
         bool*   snapToGridRef   { nullptr };
+        double* gridQuantumBeats { nullptr };
         double* pixelsPerBeat   { nullptr };
         double* playheadBeats   { nullptr };
         bool*   loopEnabled     { nullptr };
@@ -75,6 +80,7 @@ private:
         // host layout hooks
         std::function<void()> onLayoutRequest;
         std::function<void()> onNotesChanged;
+        std::function<void(int, int)> onPreviewNote;
 
         // accessors
         double ppb() const;
@@ -130,6 +136,7 @@ private:
         int    rowToPitch(int row) const;
         double snapQuantum() const;
         double snapToGrid(double beats) const;
+        void auditionKeyAt(juce::Point<int> p);
 
         // interaction helpers
         int closestNoteToX(int x) const;
@@ -192,6 +199,8 @@ private:
         bool creatingNote { false };
         int createdIndex { -1 };
         double createdStartBeats { 0.0 };
+        double rememberedNoteLengthBeats { 0.25 };
+        int auditionedPitch { -1 };
 
         // velocity drag
         bool velDragActive { false };
@@ -238,6 +247,7 @@ private:
 
     int minPitch { 48 }, maxPitch { 84 };
     double beatsExtent { 64.0 };
+    double gridQuantumBeats { 0.25 };
 
     double playheadBeats { 0.0 };
     bool   loopEnabled   { true };
@@ -252,6 +262,7 @@ private:
     // UI
     juce::Viewport view;
     juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoops;
+    juce::ComboBox gridMenu;
 
     Tool tool { Tool::Select };
 };

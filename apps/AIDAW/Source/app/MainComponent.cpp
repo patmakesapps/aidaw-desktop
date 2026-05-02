@@ -28,6 +28,10 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     {
         eddie.setNotes (notes);
     };
+    midi.onPreviewNote = [this] (int pitch, int velocity)
+    {
+        eddie.triggerPreviewNote (pitch, velocity);
+    };
     eddie.setNotes (midi.getNotes());
 
     arranger.onPlayheadSet = [this] (double beats)

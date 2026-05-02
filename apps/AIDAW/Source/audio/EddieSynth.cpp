@@ -133,40 +133,46 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
 
     info.clearActiveBufferRegion();
 
-    if (sampleRate <= 0.0 || ! playing.load())
+    if (sampleRate <= 0.0)
         return;
 
-    const auto localNotes = copyNotes();
-    if (localNotes.empty())
+    if (playing.load())
     {
+        const auto localNotes = copyNotes();
+        if (localNotes.empty())
+        {
+            playheadSamples.fetch_add (info.numSamples);
+            renderPreviewVoices (info);
+            return;
+        }
+
+        const int64 blockStart = playheadSamples.load();
+        const int64 blockEnd = blockStart + info.numSamples;
+        const double secondsPerBeat = 60.0 / juce::jmax (1.0, bpm);
+        const int64 releaseSamples = (int64) std::ceil (msToSeconds (settings.releaseMs) * sampleRate);
+
+        for (const auto& note : localNotes)
+        {
+            const int64 noteStart = (int64) std::floor (note.startBeats * secondsPerBeat * sampleRate);
+            const int64 noteEnd = (int64) std::ceil ((note.startBeats + note.lengthBeats) * secondsPerBeat * sampleRate);
+            const int64 tailEnd = noteEnd + releaseSamples;
+
+            if (tailEnd <= blockStart || noteStart >= blockEnd)
+                continue;
+
+            const int renderStart = (int) juce::jmax<int64> (0, noteStart - blockStart);
+            const int renderEnd = (int) juce::jmin<int64> (info.numSamples, tailEnd - blockStart);
+            const int renderLength = juce::jmax (0, renderEnd - renderStart);
+
+            EddieSynthVoiceRenderer::renderNote (note, settings, sampleRate, bpm, blockStart,
+                                                 *info.buffer, info.startSample + renderStart,
+                                                 renderStart, renderLength);
+        }
+
         playheadSamples.fetch_add (info.numSamples);
-        return;
     }
 
-    const int64 blockStart = playheadSamples.load();
-    const int64 blockEnd = blockStart + info.numSamples;
-    const double secondsPerBeat = 60.0 / juce::jmax (1.0, bpm);
-    const int64 releaseSamples = (int64) std::ceil (msToSeconds (settings.releaseMs) * sampleRate);
-
-    for (const auto& note : localNotes)
-    {
-        const int64 noteStart = (int64) std::floor (note.startBeats * secondsPerBeat * sampleRate);
-        const int64 noteEnd = (int64) std::ceil ((note.startBeats + note.lengthBeats) * secondsPerBeat * sampleRate);
-        const int64 tailEnd = noteEnd + releaseSamples;
-
-        if (tailEnd <= blockStart || noteStart >= blockEnd)
-            continue;
-
-        const int renderStart = (int) juce::jmax<int64> (0, noteStart - blockStart);
-        const int renderEnd = (int) juce::jmin<int64> (info.numSamples, tailEnd - blockStart);
-        const int renderLength = juce::jmax (0, renderEnd - renderStart);
-
-        EddieSynthVoiceRenderer::renderNote (note, settings, sampleRate, bpm, blockStart,
-                                             *info.buffer, info.startSample + renderStart,
-                                             renderStart, renderLength);
-    }
-
-    playheadSamples.fetch_add (info.numSamples);
+    renderPreviewVoices (info);
 }
 
 void EddieSynthAudioSource::setPlaying (bool shouldPlay)
@@ -208,10 +214,50 @@ void EddieSynthAudioSource::setSettings (const EddieSynthSettings& newSettings)
     settings = newSettings;
 }
 
+void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
+{
+    if (sampleRate <= 0.0)
+        return;
+
+    const double previewSeconds = 0.32;
+    const double secondsPerBeat = 60.0 / juce::jmax (1.0, bpm);
+
+    PreviewVoice voice;
+    voice.note.pitch = juce::jlimit (0, 127, pitch);
+    voice.note.velocity = juce::jlimit (1, 127, velocity);
+    voice.note.startBeats = 0.0;
+    voice.note.lengthBeats = previewSeconds / secondsPerBeat;
+    voice.releaseEndSamples = (int64) std::ceil ((previewSeconds + msToSeconds (settings.releaseMs)) * sampleRate);
+
+    const juce::ScopedLock lock (previewLock);
+    previewVoices.push_back (voice);
+}
+
 std::vector<MidiNote> EddieSynthAudioSource::copyNotes() const
 {
     const juce::ScopedLock lock (notesLock);
     return notes;
+}
+
+void EddieSynthAudioSource::renderPreviewVoices (const juce::AudioSourceChannelInfo& info)
+{
+    const juce::ScopedLock lock (previewLock);
+    if (previewVoices.empty() || info.buffer == nullptr)
+        return;
+
+    for (auto& voice : previewVoices)
+    {
+        EddieSynthVoiceRenderer::renderNote (voice.note, settings, sampleRate, bpm, voice.sampleCursor,
+                                             *info.buffer, info.startSample, 0, info.numSamples);
+        voice.sampleCursor += info.numSamples;
+    }
+
+    previewVoices.erase (std::remove_if (previewVoices.begin(), previewVoices.end(),
+                                         [] (const PreviewVoice& voice)
+                                         {
+                                             return voice.sampleCursor >= voice.releaseEndSamples;
+                                         }),
+                         previewVoices.end());
 }
 
 } // namespace aidaw

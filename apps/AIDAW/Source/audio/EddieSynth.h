@@ -54,12 +54,23 @@ public:
     void setBpm (double bpmIn);
     void setNotes (const std::vector<MidiNote>& newNotes);
     void setSettings (const EddieSynthSettings& newSettings);
+    void triggerPreviewNote (int pitch, int velocity = 100);
 
 private:
+    struct PreviewVoice
+    {
+        MidiNote note;
+        int64 sampleCursor { 0 };
+        int64 releaseEndSamples { 0 };
+    };
+
     std::vector<MidiNote> copyNotes() const;
+    void renderPreviewVoices (const juce::AudioSourceChannelInfo& info);
 
     mutable juce::CriticalSection notesLock;
     std::vector<MidiNote> notes;
+    mutable juce::CriticalSection previewLock;
+    std::vector<PreviewVoice> previewVoices;
 
     EddieSynthSettings settings;
     std::atomic<bool> playing { false };
