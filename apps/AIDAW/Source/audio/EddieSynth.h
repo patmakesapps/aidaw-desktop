@@ -54,6 +54,7 @@ public:
     void setBpm (double bpmIn);
     void setNotes (const std::vector<MidiNote>& newNotes);
     void setSettings (const EddieSynthSettings& newSettings);
+    EddieSynthSettings getSettings() const;
     void triggerPreviewNote (int pitch, int velocity = 100);
 
 private:
@@ -73,6 +74,7 @@ private:
     std::vector<PreviewVoice> previewVoices;
 
     EddieSynthSettings settings;
+    mutable juce::CriticalSection settingsLock;
     std::atomic<bool> playing { false };
     std::atomic<int64> playheadSamples { 0 };
     std::atomic<double> pendingSeekBeats { 0.0 };

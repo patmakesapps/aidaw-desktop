@@ -58,6 +58,10 @@ target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/ui/midi/MidiEditor.cpp
     apps/AIDAW/Source/ui/midi/MidiEditorNoteComponent.cpp
 
+    # ---- Synth UI ----
+    apps/AIDAW/Source/ui/synth/EddieSynthPanel.h
+    apps/AIDAW/Source/ui/synth/EddieSynthPanel.cpp
+
     # ---- Loops ----
     apps/AIDAW/Source/ui/loops/LoopsRegistry.h
     apps/AIDAW/Source/ui/loops/LoopsModal.h

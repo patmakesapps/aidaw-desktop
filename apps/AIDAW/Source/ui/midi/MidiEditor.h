@@ -39,6 +39,9 @@ public:
     // called by toolbar "Loops" button
     std::function<void()> onShowLoops;
 
+    // called by toolbar "Eddie" button
+    std::function<void()> onOpenSynth;
+
     // called whenever the editor mutates its note list
     std::function<void(const std::vector<MidiNote>&)> onNotesChanged;
 
@@ -278,7 +281,7 @@ private:
 
     // UI
     juce::Viewport view;
-    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoopToggle, btnLoops;
+    juce::TextButton btnSelect, btnDraw, btnZoomTool, btnFrameAll, btnSnap, btnZoomOut, btnZoomIn, btnLoopToggle, btnLoops, btnEddie;
     juce::ComboBox gridMenu;
 
     Tool tool { Tool::Select };

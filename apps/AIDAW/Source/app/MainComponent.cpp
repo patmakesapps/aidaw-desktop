@@ -14,6 +14,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     addAndMakeVisible (arranger);
     addAndMakeVisible (midi);
     addAndMakeVisible (mixerUI);
+    addChildComponent (eddiePanel);
     midi.setVisible (false);
     mixerUI.setVisible (false);
 
@@ -33,6 +34,19 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
         eddie.triggerPreviewNote (pitch, velocity);
     };
     eddie.setNotes (midi.getNotes());
+    eddiePanel.setSettings (eddie.getSettings());
+    eddiePanel.onSettingsChanged = [this] (const EddieSynthSettings& settings)
+    {
+        eddie.setSettings (settings);
+    };
+    eddiePanel.onPreviewNote = [this] (int pitch, int velocity)
+    {
+        eddie.triggerPreviewNote (pitch, velocity);
+    };
+    eddiePanel.onClose = [this]
+    {
+        eddiePanel.setVisible (false);
+    };
 
     arranger.onPlayheadSet = [this] (double beats)
     {
@@ -106,6 +120,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     };
 
     midi.onShowLoops = [this] { openLoopsModal(); };
+    midi.onOpenSynth = [this] { openEddiePanel(); };
     arranger.onLoopsClicked = [this] { openLoopsModal(); };
 
     setWantsKeyboardFocus (true);
@@ -135,6 +150,7 @@ void MainComponent::resized()
     arranger.setBounds (body);
     midi.setBounds (body);
     mixerUI.setBounds (body);
+    eddiePanel.setBounds (body.reduced (80, 42));
 }
 
 bool MainComponent::keyPressed (const juce::KeyPress& key)
@@ -231,6 +247,13 @@ void MainComponent::openLoopsModal()
     };
 
     LoopsModal::show (this, callbacks);
+}
+
+void MainComponent::openEddiePanel()
+{
+    eddiePanel.setSettings (eddie.getSettings());
+    eddiePanel.setVisible (true);
+    eddiePanel.toFront (true);
 }
 
 } // namespace aidaw

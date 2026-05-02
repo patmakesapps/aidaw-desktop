@@ -9,6 +9,7 @@
 #include "../ui/midi/MidiEditor.h"
 #include "../ui/mixer/MixerComponent.h"
 #include "../ui/shell/TopBar.h"
+#include "../ui/synth/EddieSynthPanel.h"
 
 namespace aidaw
 {
@@ -30,11 +31,13 @@ private:
     void setTransportPlaying (bool shouldPlay);
     void stopTransport();
     void openLoopsModal();
+    void openEddiePanel();
 
     TopBar topBar;
     Arranger arranger;
     MidiEditor midi;
     MixerComponent mixerUI;
+    EddieSynthPanel eddiePanel;
 
     juce::MixerAudioSource& mixer;
     MetronomeSource& metronome;

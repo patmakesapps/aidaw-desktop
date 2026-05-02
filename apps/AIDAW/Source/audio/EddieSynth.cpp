@@ -44,6 +44,7 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
                                           int blockOffsetSample,
                                           int numSamples)
 {
+    auto localSettings = settings;
     if (sampleRate <= 0.0 || bpm <= 0.0 || note.lengthBeats <= 0.0)
         return;
 
@@ -64,13 +65,13 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
         const double secondsFromStart = (absoluteSample - noteStartSample) / sampleRate;
         const double secondsFromEnd = (absoluteSample - noteEndSample) / sampleRate;
 
-        const float env = envelopeGain (secondsFromStart, secondsFromEnd, settings);
+        const float env = envelopeGain (secondsFromStart, secondsFromEnd, localSettings);
         if (env <= 0.0f)
             continue;
 
         const double phaseCycles = secondsFromStart * frequency;
-        const float sample = oscillatorSample (phaseCycles, settings.sawMix, settings.subMix)
-                           * env * velocityGain * settings.outputGain;
+        const float sample = oscillatorSample (phaseCycles, localSettings.sawMix, localSettings.subMix)
+                           * env * velocityGain * localSettings.outputGain;
 
         for (int ch = 0; ch < channels; ++ch)
             buffer.addSample (ch, bufferIndex, sample);
@@ -151,6 +152,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
 
     if (playing.load())
     {
+        const auto renderSettings = getSettings();
         const auto localNotes = copyNotes();
         if (localNotes.empty())
         {
@@ -163,7 +165,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
         const int64 blockStart = playheadSamples.load();
         const int64 blockEnd = blockStart + info.numSamples;
         const double secondsPerBeat = 60.0 / juce::jmax (1.0, bpm);
-        const int64 releaseSamples = (int64) std::ceil (msToSeconds (settings.releaseMs) * sampleRate);
+        const int64 releaseSamples = (int64) std::ceil (msToSeconds (renderSettings.releaseMs) * sampleRate);
 
         for (const auto& note : localNotes)
         {
@@ -178,7 +180,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
             const int renderEnd = (int) juce::jmin<int64> (info.numSamples, tailEnd - blockStart);
             const int renderLength = juce::jmax (0, renderEnd - renderStart);
 
-            EddieSynthVoiceRenderer::renderNote (note, settings, sampleRate, bpm, blockStart,
+            EddieSynthVoiceRenderer::renderNote (note, renderSettings, sampleRate, bpm, blockStart,
                                                  *info.buffer, info.startSample + renderStart,
                                                  renderStart, renderLength);
         }
@@ -226,7 +228,14 @@ void EddieSynthAudioSource::setNotes (const std::vector<MidiNote>& newNotes)
 
 void EddieSynthAudioSource::setSettings (const EddieSynthSettings& newSettings)
 {
+    const juce::ScopedLock lock (settingsLock);
     settings = newSettings;
+}
+
+EddieSynthSettings EddieSynthAudioSource::getSettings() const
+{
+    const juce::ScopedLock lock (settingsLock);
+    return settings;
 }
 
 void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
@@ -234,6 +243,7 @@ void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
     if (sampleRate <= 0.0)
         return;
 
+    const auto previewBaseSettings = getSettings();
     const double previewSeconds = 0.32;
     const double secondsPerBeat = 60.0 / juce::jmax (1.0, bpm);
 
@@ -242,7 +252,7 @@ void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
     voice.note.velocity = juce::jlimit (1, 82, velocity);
     voice.note.startBeats = 0.0;
     voice.note.lengthBeats = previewSeconds / secondsPerBeat;
-    voice.releaseEndSamples = (int64) std::ceil ((previewSeconds + msToSeconds (settings.releaseMs)) * sampleRate);
+    voice.releaseEndSamples = (int64) std::ceil ((previewSeconds + msToSeconds (previewBaseSettings.releaseMs)) * sampleRate);
 
     const juce::ScopedLock lock (previewLock);
     if (! previewVoices.empty() && previewVoices.back().note.pitch == voice.note.pitch
@@ -269,7 +279,11 @@ void EddieSynthAudioSource::renderPreviewVoices (const juce::AudioSourceChannelI
 
     for (auto& voice : previewVoices)
     {
-        auto previewSettings = settings;
+        EddieSynthSettings previewSettings;
+        {
+            const juce::ScopedLock settingsGuard (settingsLock);
+            previewSettings = settings;
+        }
         previewSettings.outputGain *= 0.55f;
         previewSettings.sawMix = juce::jmin (previewSettings.sawMix, 0.45f);
         previewSettings.subMix = juce::jmin (previewSettings.subMix, 0.10f);

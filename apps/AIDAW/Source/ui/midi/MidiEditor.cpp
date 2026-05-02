@@ -9,7 +9,7 @@ MidiEditor::MidiEditor()
     setWantsKeyboardFocus(true);
 
     // --- Toolbar ---
-    for (juce::TextButton* b : { &btnSelect, &btnDraw, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomOut, &btnZoomIn, &btnLoopToggle, &btnLoops })
+    for (juce::TextButton* b : { &btnSelect, &btnDraw, &btnZoomTool, &btnFrameAll, &btnSnap, &btnZoomOut, &btnZoomIn, &btnLoopToggle, &btnLoops, &btnEddie })
     { addAndMakeVisible(b); b->addListener(this); b->setWantsKeyboardFocus(false); }
     addAndMakeVisible(gridMenu);
 
@@ -22,6 +22,7 @@ MidiEditor::MidiEditor()
     btnZoomIn  .setButtonText("+");                                                           btnZoomIn.setTooltip ("Zoom in (+)");
     btnLoopToggle.setButtonText(juce::String::fromUTF8(reinterpret_cast<const char*>(u8"↻"))); btnLoopToggle.setTooltip("Show and enable the loop region");
     btnLoops   .setButtonText("Loops");                                                       btnLoops.setTooltip  ("Open Loops (create/select)");
+    btnEddie   .setButtonText("Eddie");                                                       btnEddie.setTooltip  ("Open Eddie synth");
 
     gridMenu.addItem("1 bar", 1);
     gridMenu.addItem("1/2",   2);
@@ -376,6 +377,8 @@ void MidiEditor::resized()
     gridMenu   .setBounds(tools.removeFromLeft(82)); tools.removeFromLeft(8);
     btnLoopToggle.setBounds(tools.removeFromLeft(44)); tools.removeFromLeft(8);
     btnLoops   .setBounds(tools.removeFromLeft(72)); // "Loops" button just to the right of '+'
+    tools.removeFromLeft(8);
+    btnEddie   .setBounds(tools.removeFromLeft(74));
 
     r.removeFromTop(8);
     view.setBounds(r);
@@ -454,6 +457,7 @@ void MidiEditor::buttonClicked(juce::Button* b)
     else if (b == &btnZoomOut)  zoomAtContentX(-1.0, view.getViewPositionX() + view.getViewWidth()/2);
     else if (b == &btnLoopToggle) setLoopEnabled(btnLoopToggle.getToggleState());
     else if (b == &btnLoops)    { if (onShowLoops) onShowLoops(); }
+    else if (b == &btnEddie)    { if (onOpenSynth) onOpenSynth(); }
 }
 
 void MidiEditor::refreshContentSize()
