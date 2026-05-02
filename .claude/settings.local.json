@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmake --build . --config Debug --target AIDAW)"
+      "Bash(cmake --build . --config Debug --target AIDAW)",
+      "Read(//mnt/c/**)",
+      "Bash(dir C:\\\\\\\\AIDAW)",
+      "Bash(cmake --build C:/AIDAW/build --config Debug)"
     ]
   }
 }

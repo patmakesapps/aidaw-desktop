@@ -29,6 +29,16 @@ void ArrangerCanvas::paint(juce::Graphics& g)
     g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.fillRect(gridX0, 0, 1, H);
 
+    // Adaptive bar label stride: skip labels when bars are too close together
+    const double pixPerBar = ppb * 4.0;
+    int barLabelStride = 1;
+    if (pixPerBar < 44.0)
+    {
+        const int raw = (int) std::ceil(44.0 / pixPerBar);
+        barLabelStride = 1;
+        while (barLabelStride < raw) barLabelStride <<= 1;
+    }
+
     // --- Bars & beats (no ruler background; no zebra rows) ---
     for (int beat = 0; beat <= totalBeats; ++beat)
     {
@@ -43,11 +53,15 @@ void ArrangerCanvas::paint(juce::Graphics& g)
             g.setColour(juce::Colour(Theme::colBarTick));
             g.fillRect(x, 0, 1, rulerH);
 
-            g.setColour(juce::Colour(Theme::colBarLabel));
-            g.setFont(11.0f);
-            g.drawFittedText(juce::String((beat / 4) + 1),
-                             x + 4, 2, 30, rulerH - 4,
-                             juce::Justification::centredLeft, 1);
+            const int barNum = beat / 4;
+            if (barNum % barLabelStride == 0)
+            {
+                g.setColour(juce::Colour(Theme::colBarLabel));
+                g.setFont(11.0f);
+                g.drawFittedText(juce::String(barNum + 1),
+                                 x + 4, 2, 40, rulerH - 4,
+                                 juce::Justification::centredLeft, 1);
+            }
         }
     }
 

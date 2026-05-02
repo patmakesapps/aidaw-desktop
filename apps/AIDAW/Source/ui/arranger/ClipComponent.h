@@ -4,10 +4,12 @@
 // Make sure this is the header that DEFINES ArrangerTool
 #include "../shared/Models.h"
 #include "../shared/ThumbCache.h"
+#include "../shared/Theme.h"
 
 
 class ClipComponent : public juce::Component,
-                      public juce::ChangeListener
+                      public juce::ChangeListener,
+                      private juce::Timer
 {
 public:
     ClipComponent(ClipModel& m,
@@ -29,6 +31,7 @@ public:
     void paint(juce::Graphics& g) override;
     void mouseMove(const juce::MouseEvent& e) override;
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
+    void timerCallback() override;
 
     // Exposed model
     ClipModel& model;
@@ -46,4 +49,5 @@ private:
     ArrangerTool  activeTool { ArrangerTool::Pointer };
     juce::Point<int> lastMousePos { 0, 0 };
     bool          savedOnce { false };
+    float         spinnerAngle { 0.0f };
 };

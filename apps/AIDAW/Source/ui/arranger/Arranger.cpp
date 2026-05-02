@@ -587,13 +587,13 @@ void Arranger::frameAll()
             maxEndBeats = std::max(maxEndBeats, c.startBeats + c.lengthBeats);
 
     const int viewportW = juce::jmax(1, view.getWidth() - TrackLaneComponent::headerWidth - 40);
-    const double targetBeatsVisible = juce::jlimit(16.0, 128.0, maxEndBeats + 8.0);
-    const double ppbNow = juce::jlimit(1.0, 300.0, (double)viewportW / targetBeatsVisible);
+    const double targetBeatsVisible = maxEndBeats + 8.0;
+    const double ppbNow = juce::jlimit(minPixelsPerBeat, maxPixelsPerBeat,
+                                       (double)viewportW / targetBeatsVisible);
 
     ppbAt120      = ppbNow * (bpmValue / 120.0);
     zoomScale     = 1.0;
-    pixelsPerBeat = juce::jlimit(minPixelsPerBeat, maxPixelsPerBeat,
-                     ppbAt120 * (120.0 / bpmValue) * zoomScale);
+    pixelsPerBeat = ppbNow;
 
     const int neededW = TrackLaneComponent::headerWidth
                       + (int) std::ceil(maxEndBeats * pixelsPerBeat) + 220;

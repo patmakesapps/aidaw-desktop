@@ -19,6 +19,9 @@ ClipComponent::ClipComponent(ClipModel& m,
     {
         (void) ThumbPersistence::load(thumb, model.file);
         thumb.setSource(new juce::FileInputSource(model.file)); // takes ownership
+
+        if (thumb.getTotalLength() <= 0.0)
+            startTimerHz(20);
     }
 
     thumb.addChangeListener(this);
@@ -115,16 +118,34 @@ void ClipComponent::paint(juce::Graphics& g)
         // Draw ONLY the subrange represented by this clip
         thumb.drawChannels(g, inner, s, e, 1.0f);
     }
+    else if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
+    {
+        // Loading: spinner + filename
+        const float cx = r.getCentreX();
+        const float cy = r.getCentreY();
+        const float rad = juce::jmin(r.getWidth() * 0.12f, r.getHeight() * 0.28f, 12.0f);
+
+        juce::Path arc;
+        arc.addArc(cx - rad, cy - rad, rad * 2.0f, rad * 2.0f,
+                   spinnerAngle,
+                   spinnerAngle + juce::MathConstants<float>::pi * 1.3f,
+                   true);
+        g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.85f));
+        g.strokePath(arc, juce::PathStrokeType(2.0f,
+                          juce::PathStrokeType::curved,
+                          juce::PathStrokeType::rounded));
+
+        g.setColour(juce::Colour(Theme::colTextDim));
+        g.setFont(11.0f);
+        g.drawText(model.file.getFileNameWithoutExtension(),
+                   getLocalBounds().reduced(8, 6),
+                   juce::Justification::centredLeft, true);
+    }
     else
     {
-        // Fallback: show file name
-        g.setColour(juce::Colours::white);
-        auto font = juce::Font(12.0f).boldened();
-        g.setFont(font);
-        auto base = model.file.existsAsFile()
-                  ? model.file.getFileNameWithoutExtension()
-                  : juce::String("Clip");
-        g.drawText(base, getLocalBounds().reduced(8, 6),
+        g.setColour(juce::Colour(Theme::colTextDim));
+        g.setFont(juce::Font(12.0f).boldened());
+        g.drawText("Clip", getLocalBounds().reduced(8, 6),
                    juce::Justification::centredLeft, true);
     }
 
@@ -139,15 +160,27 @@ void ClipComponent::mouseMove(const juce::MouseEvent& e)
     updateCursorForPoint(lastMousePos);
 }
 
+void ClipComponent::timerCallback()
+{
+    spinnerAngle += 0.18f;
+    if (spinnerAngle > juce::MathConstants<float>::twoPi)
+        spinnerAngle -= juce::MathConstants<float>::twoPi;
+    repaint();
+}
+
 void ClipComponent::changeListenerCallback(juce::ChangeBroadcaster*)
 {
-    if (model.file.existsAsFile() && thumb.getTotalLength() > 0.0 && !savedOnce)
+    if (thumb.isFullyLoaded())
     {
-        ThumbPersistence::save(thumb, model.file);
-        savedOnce = true;
+        stopTimer();
+        if (model.file.existsAsFile() && !savedOnce)
+        {
+            ThumbPersistence::save(thumb, model.file);
+            savedOnce = true;
+        }
+        if (onChanged) onChanged();
     }
     repaint();
-    if (onChanged) onChanged();
 }
 
 void ClipComponent::updateCursorForPoint(juce::Point<int> p)
