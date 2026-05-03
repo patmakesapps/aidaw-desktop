@@ -1,4 +1,5 @@
 #include "TrackLaneComponent.h"
+#include "../shared/Theme.h"
 
 TrackLaneComponent::TrackLaneComponent(TrackModel& m,
                                        std::function<void(TrackModel&)> onSelect,
@@ -20,11 +21,12 @@ TrackLaneComponent::TrackLaneComponent(TrackModel& m,
 
     title.setText(model.name, juce::dontSendNotification);
     title.setJustificationType(juce::Justification::centredLeft);
-    title.setColour(juce::Label::textColourId, juce::Colours::white);
+    title.setColour(juce::Label::textColourId, juce::Colour(Theme::colText));
     title.setEditable(true);
     title.setMinimumHorizontalScale(0.8f);
     title.onTextChange = [this]() { model.name = title.getText(); repaint(); };
     addAndMakeVisible(title);
+    title.addMouseListener(this, false);
     title.setTooltip("Rename track. Double-click header to duplicate. Drag header to reorder.");
 }
 
@@ -34,14 +36,15 @@ bool TrackLaneComponent::isSelected() const { return selected; }
 void TrackLaneComponent::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds();
-    g.setColour(juce::Colour(0xFF0F0F0F)); g.fillRect(r);
+    g.setColour(juce::Colour(Theme::colRowEven)); g.fillRect(r);
 
     auto header = r.removeFromLeft(headerWidth);
-    g.setColour(juce::Colour(0xFF141414)); g.fillRect(header);
+    g.setColour(juce::Colour(selected ? Theme::colBtnActive : Theme::colBgPanel));
+    g.fillRect(header);
 
-    g.setColour(juce::Colour(0x22FFFFFF)); g.drawRect(header);
+    g.setColour(juce::Colour(Theme::colHeaderDiv)); g.drawRect(header);
 
-    g.setColour(juce::Colour(0x11FFFFFF));
+    g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.fillRect(0, getHeight()-1, getWidth(), 1);
 }
 

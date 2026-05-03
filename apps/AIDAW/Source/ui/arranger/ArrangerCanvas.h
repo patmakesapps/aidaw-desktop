@@ -21,6 +21,7 @@ public:
     double beatsFromX(int x) const        { return Theme::beatsFromX(x, pixelsPerBeatRef, TrackLaneComponent::headerWidth);   }
 
     void setSelectionRect(std::optional<juce::Rectangle<int>> r) { selectionRect = std::move(r); repaint(); }
+    void setTrackReorderIndicator(std::optional<int> yContent) { trackReorderIndicatorY = yContent; repaint(); }
     static constexpr int rulerH = Theme::rulerH;
 
     std::vector<TrackModel>& tracks;
@@ -33,4 +34,5 @@ public:
 
 private:
     std::optional<juce::Rectangle<int>> selectionRect;
+    std::optional<int> trackReorderIndicatorY;
 };

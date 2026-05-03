@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include "../shared/Models.h"
+#include "../shared/Theme.h"
 #include "../shared/Icons.h"
 #include "ClipComponent.h"
 #include "TrackLaneComponent.h"
@@ -70,7 +71,7 @@ private:
     // content layer inside the viewport
     class ContentComp : public juce::Component
     {
-        void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xFF0A0A0A)); }
+        void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(Theme::colBgMain)); }
     } content;
 
     // Viewport that fires a callback whenever its visible region changes,
@@ -168,6 +169,7 @@ private:
 
     // lane reorder
     int draggingLaneIndex { -1 };
+    int reorderInsertIndex { -1 };
 
     // undo/redo
     std::vector<std::vector<TrackModel>> undoStack, redoStack;
@@ -211,6 +213,10 @@ private:
     void setSelectedLane(int idx);
     int  laneIndexFromY(int yInContent) const;
     int  laneIndexFromYAllowNew(int yInContent) const;
+    int  reorderInsertIndexFromY(int yInContent) const;
+    void beginTrackReorder(int index);
+    void updateTrackReorder(int yInContent);
+    void endTrackReorder();
 
     // mouse routing
     void mouseDown(const juce::MouseEvent&) override;

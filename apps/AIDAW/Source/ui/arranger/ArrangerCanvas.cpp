@@ -96,6 +96,18 @@ void ArrangerCanvas::paint(juce::Graphics& g)
             }
     }
 
+    if (trackReorderIndicatorY)
+    {
+        const int y = juce::jlimit(rulerH, H - 1, *trackReorderIndicatorY);
+        const int x = TrackLaneComponent::headerWidth;
+        const int w = juce::jmax(0, W - x);
+
+        g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.20f));
+        g.fillRect(x, y - 4, w, 8);
+        g.setColour(juce::Colour(Theme::colAccent));
+        g.fillRect(x, y - 1, w, 2);
+    }
+
     // Playhead (unchanged)
     const int xPH = xFromBeats(playheadBeatsRef);
     g.setColour(juce::Colour(Theme::colPlayhead));

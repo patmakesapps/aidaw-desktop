@@ -52,6 +52,7 @@ public:
     HeaderStrip();
 
     void paint(juce::Graphics& g) override;
+    void paintOverChildren(juce::Graphics& g) override;
 
     // Replace all rows. The strip takes ownership of the passed-in rows.
     void setRows(std::vector<std::unique_ptr<TrackHeaderRow>> newRows);
@@ -61,6 +62,8 @@ public:
     void setLaneTop(int top)        { laneTop = top; layoutChildren(); }
     void setLaneHeight(int h)       { laneH = juce::jmax(8, h); layoutChildren(); }
     void setVerticalScroll(int yScroll) { vscroll = yScroll; layoutChildren(); }
+    void setReorderPreview(int sourceIndex, int insertIndex, int cursorY);
+    void clearReorderPreview();
 
     // The "+" add-track button is a child of the strip so it stays pinned.
     juce::TextButton plusButton { "+" };
@@ -76,6 +79,9 @@ private:
     int laneTop { 20 };
     int laneH   { 76 };
     int vscroll { 0 };
+    int reorderSourceIndex { -1 };
+    int reorderInsertIndex { -1 };
+    int reorderCursorY { -1 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HeaderStrip)
 };

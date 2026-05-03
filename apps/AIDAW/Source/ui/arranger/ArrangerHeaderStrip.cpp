@@ -20,11 +20,12 @@ TrackHeaderRow::TrackHeaderRow(TrackModel& m,
 {
     title.setText(model.name, juce::dontSendNotification);
     title.setJustificationType(juce::Justification::centredLeft);
-    title.setColour(juce::Label::textColourId, juce::Colours::white);
+    title.setColour(juce::Label::textColourId, juce::Colour(Theme::colText));
     title.setEditable(true);
     title.setMinimumHorizontalScale(0.8f);
     title.onTextChange = [this]() { model.name = title.getText(); repaint(); };
     addAndMakeVisible(title);
+    title.addMouseListener(this, false);
     title.setTooltip("Rename track. Double-click header to duplicate. Drag header to reorder.");
 }
 
@@ -39,7 +40,7 @@ void TrackHeaderRow::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds();
 
-    g.setColour(juce::Colour(selected ? 0xFF1D2434 : 0xFF141414));
+    g.setColour(juce::Colour(selected ? Theme::colBtnActive : Theme::colBgPanel));
     g.fillRect(r);
 
     if (selected)
@@ -48,7 +49,7 @@ void TrackHeaderRow::paint(juce::Graphics& g)
         g.fillRect(0, 0, 3, r.getHeight());
     }
 
-    g.setColour(juce::Colour(0x22FFFFFF));
+    g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.drawRect(r);
 }
 
@@ -98,11 +99,23 @@ HeaderStrip::HeaderStrip()
 
 void HeaderStrip::paint(juce::Graphics& g)
 {
-    g.fillAll(juce::Colour(0xFF0D0D0D));
+    g.fillAll(juce::Colour(Theme::colBgRuler));
 
     // Right edge divider so the strip reads as a distinct pinned panel.
     g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.fillRect(getWidth() - 1, 0, 1, getHeight());
+}
+
+void HeaderStrip::paintOverChildren(juce::Graphics& g)
+{
+    if (reorderInsertIndex >= 0)
+    {
+        const int y = (laneTop + reorderInsertIndex * laneH) - vscroll;
+        g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.20f));
+        g.fillRect(0, y - 4, getWidth(), 8);
+        g.setColour(juce::Colour(Theme::colAccent));
+        g.fillRect(8, y - 1, getWidth() - 16, 2);
+    }
 }
 
 void HeaderStrip::setRows(std::vector<std::unique_ptr<TrackHeaderRow>> newRows)
@@ -122,15 +135,44 @@ void HeaderStrip::setRows(std::vector<std::unique_ptr<TrackHeaderRow>> newRows)
     layoutChildren();
 }
 
+void HeaderStrip::setReorderPreview(int sourceIndex, int insertIndex, int cursorY)
+{
+    reorderSourceIndex = sourceIndex;
+    reorderInsertIndex = insertIndex;
+    reorderCursorY = cursorY;
+    layoutChildren();
+    repaint();
+}
+
+void HeaderStrip::clearReorderPreview()
+{
+    reorderSourceIndex = -1;
+    reorderInsertIndex = -1;
+    reorderCursorY = -1;
+    layoutChildren();
+    repaint();
+}
+
 void HeaderStrip::layoutChildren()
 {
     const int w = getWidth();
     int y = laneTop - vscroll;
 
-    for (auto& r : rows)
+    for (int i = 0; i < (int) rows.size(); ++i)
     {
+        auto& r = rows[(size_t) i];
         if (r == nullptr) continue;
-        r->setBounds(0, y, w, laneH);
+
+        const bool isDragged = (i == reorderSourceIndex);
+        if (isDragged && reorderCursorY >= 0)
+            r->setBounds(4, reorderCursorY - laneH / 2, juce::jmax(1, w - 8), laneH);
+        else
+            r->setBounds(0, y, w, laneH);
+
+        r->setAlpha(isDragged ? 0.82f : 1.0f);
+        if (isDragged)
+            r->toFront(false);
+
         y += laneH;
     }
 

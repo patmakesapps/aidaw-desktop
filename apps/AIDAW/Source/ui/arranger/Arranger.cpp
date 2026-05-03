@@ -91,6 +91,9 @@ void Arranger::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     headerStrip.plusButton.setColour(juce::TextButton::buttonColourId,    juce::Colour(Theme::colBtnIdle));
     headerStrip.plusButton.setColour(juce::TextButton::textColourOffId,   juce::Colour(Theme::colTextDim));
+    for (auto& lane : laneComps)
+        if (lane) lane->repaint();
+    content.repaint();
     headerStrip.repaint();
     canvas.repaint();
     repaint();
@@ -837,16 +840,10 @@ void Arranger::refreshAll()
             [this](size_t idx){ duplicateTrack(idx); },
             [this](TrackLaneComponent&, int yInContent)
             {
-                const int idx = laneIndexFromY(yInContent);
-                if (draggingLaneIndex >= 0 && idx != draggingLaneIndex)
-                {
-                    std::swap(tracks[(size_t)draggingLaneIndex], tracks[(size_t)idx]);
-                    draggingLaneIndex = idx;
-                    refreshAll();
-                }
+                updateTrackReorder(yInContent);
             },
-            [this, i](TrackLaneComponent&){ draggingLaneIndex = (int)i; },
-            [this](TrackLaneComponent&){ draggingLaneIndex = -1; refreshAll(); },
+            [this, i](TrackLaneComponent&){ beginTrackReorder((int)i); },
+            [this](TrackLaneComponent&){ endTrackReorder(); },
             i
         );
         lane->setSelected((int)i == selectedLaneIndex);
@@ -860,17 +857,10 @@ void Arranger::refreshAll()
             [this](TrackHeaderRow&, int yInStrip)
             {
                 // yInStrip is in HeaderStrip-local coords; convert to content Y.
-                const int yContent = yInStrip + view.getViewPositionY();
-                const int idx = laneIndexFromY(yContent);
-                if (draggingLaneIndex >= 0 && idx != draggingLaneIndex)
-                {
-                    std::swap(tracks[(size_t)draggingLaneIndex], tracks[(size_t)idx]);
-                    draggingLaneIndex = idx;
-                    refreshAll();
-                }
+                updateTrackReorder(yInStrip + view.getViewPositionY());
             },
-            [this, i](TrackHeaderRow&){ draggingLaneIndex = (int)i; },
-            [this](TrackHeaderRow&){ draggingLaneIndex = -1; refreshAll(); },
+            [this, i](TrackHeaderRow&){ beginTrackReorder((int)i); },
+            [this](TrackHeaderRow&){ endTrackReorder(); },
             i
         );
         headerRow->setSelected((int)i == selectedLaneIndex);
@@ -949,6 +939,91 @@ int Arranger::laneIndexFromYAllowNew(int yInContent) const
     if (tracks.empty()) return 0;
     const int idx = (y) / laneH;
     return juce::jlimit(0, (int)tracks.size(), idx);
+}
+
+int Arranger::reorderInsertIndexFromY(int yInContent) const
+{
+    if (tracks.empty())
+        return 0;
+
+    const int laneH = juce::jmax(1, laneHeight());
+    const int y = yInContent - laneTop();
+    const int idx = (int) std::floor(((double) y + laneH * 0.5) / (double) laneH);
+    return juce::jlimit(0, (int) tracks.size(), idx);
+}
+
+void Arranger::beginTrackReorder(int index)
+{
+    if (index < 0 || index >= (int) tracks.size())
+        return;
+
+    draggingLaneIndex = index;
+    reorderInsertIndex = index;
+
+    for (int i = 0; i < (int) laneComps.size(); ++i)
+        if (auto& lane = laneComps[(size_t) i])
+            lane->setAlpha(i == draggingLaneIndex ? 0.55f : 1.0f);
+
+    const int yContent = laneTop() + index * laneHeight() + laneHeight() / 2;
+    headerStrip.setReorderPreview(draggingLaneIndex, reorderInsertIndex,
+                                  yContent - view.getViewPositionY());
+    canvas.setTrackReorderIndicator(laneTop() + reorderInsertIndex * laneHeight());
+}
+
+void Arranger::updateTrackReorder(int yInContent)
+{
+    if (draggingLaneIndex < 0)
+        return;
+
+    reorderInsertIndex = reorderInsertIndexFromY(yInContent);
+
+    headerStrip.setReorderPreview(draggingLaneIndex, reorderInsertIndex,
+                                  yInContent - view.getViewPositionY());
+    canvas.setTrackReorderIndicator(laneTop() + reorderInsertIndex * laneHeight());
+}
+
+void Arranger::endTrackReorder()
+{
+    if (draggingLaneIndex < 0)
+        return;
+
+    const int source = draggingLaneIndex;
+    const int insert = juce::jlimit(0, (int) tracks.size(), reorderInsertIndex);
+
+    draggingLaneIndex = -1;
+    reorderInsertIndex = -1;
+
+    headerStrip.clearReorderPreview();
+    canvas.setTrackReorderIndicator(std::nullopt);
+
+    for (auto& lane : laneComps)
+        if (lane) lane->setAlpha(1.0f);
+
+    if (insert == source || insert == source + 1)
+    {
+        repaint();
+        return;
+    }
+
+    pushUndo();
+
+    auto moved = std::move(tracks[(size_t) source]);
+    tracks.erase(tracks.begin() + source);
+
+    const int destination = insert > source ? insert - 1 : insert;
+    tracks.insert(tracks.begin() + destination, std::move(moved));
+
+    if (selectedLaneIndex == source)
+        selectedLaneIndex = destination;
+    else if (source < selectedLaneIndex && selectedLaneIndex < insert)
+        --selectedLaneIndex;
+    else if (insert <= selectedLaneIndex && selectedLaneIndex < source)
+        ++selectedLaneIndex;
+
+    if (onProjectChanged)
+        onProjectChanged();
+
+    refreshAll();
 }
 
 void Arranger::layoutLanes()
