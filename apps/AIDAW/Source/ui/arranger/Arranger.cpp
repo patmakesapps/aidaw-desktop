@@ -40,6 +40,8 @@ Arranger::Arranger()
     // Viewport + content
     addAndMakeVisible(view);
     view.setViewedComponent(&content, false);
+    view.setScrollBarsShown(true, true);
+    view.setScrollOnDragEnabled(false);
     content.addAndMakeVisible(canvas);       // overlay (draws on top, non-intercepting)
     canvas.setInterceptsMouseClicks(false, false);
 
@@ -53,6 +55,8 @@ Arranger::Arranger()
     // Sync the header overlay's vertical position with the viewport.
     view.onVisibleAreaChanged = [this](const juce::Rectangle<int>& r)
     {
+        headerStrip.setBounds(view.getX(), view.getY(),
+                              TrackLaneComponent::headerWidth, r.getHeight());
         headerStrip.setVerticalScroll(r.getY());
     };
 
@@ -315,8 +319,10 @@ void Arranger::resized()
 
     // Pinned header overlay sits ON TOP of the viewport's left strip so
     // track names remain visible while the user scrolls horizontally.
+    const int headerHeight = view.getViewHeight() > 0 ? view.getViewHeight()
+                                                       : view.getMaximumVisibleHeight();
     headerStrip.setBounds(view.getX(), view.getY(),
-                          TrackLaneComponent::headerWidth, view.getHeight());
+                          TrackLaneComponent::headerWidth, headerHeight);
     headerStrip.toFront(false);
     headerStrip.setLaneTop(laneTop());
     headerStrip.setLaneHeight(laneHeight());
@@ -698,10 +704,11 @@ void Arranger::updateActiveClipDragAt(juce::Point<int> pos, bool bypassSnap)
 
     if (dragging == DragMode::Move)
     {
-        double preview = clipStartBeatsAtDown + dxBeats;
-        preview = snapBeat(juce::jlimit(0.0, 100000.0, preview), bypassSnap);
+        const double rawPreview = juce::jlimit(0.0, 100000.0,
+                                               clipStartBeatsAtDown + dxBeats);
+        const double snappedPreview = snapBeat(rawPreview, bypassSnap);
 
-        pendingMoveStartBeats = preview;
+        pendingMoveStartBeats = snappedPreview;
         pendingMoveValid = true;
 
         const int laneH = laneHeight();
@@ -721,7 +728,7 @@ void Arranger::updateActiveClipDragAt(juce::Point<int> pos, bool bypassSnap)
         targetLaneIndex = juce::jlimit(0, (int)tracks.size(), laneFromCenter);
 
         const int w = (int)std::round(cm.lengthBeats * pixelsPerBeat);
-        const int x = canvas.xFromBeats(preview);
+        const int x = canvas.xFromBeats(rawPreview);
 
         activeClip->setBounds(x, desiredClipTop, juce::jmax(24, w), clipVisualHeight);
         return;
