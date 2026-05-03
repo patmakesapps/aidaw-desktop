@@ -20,6 +20,8 @@ struct EddieSynthSettings
 {
     float outputGain { 0.18f };
     EddieWaveform waveform { EddieWaveform::saw };
+    bool mono { false };
+    int voices { 8 };
     float sawMix     { 0.72f };
     float subMix     { 0.20f };
     float attackMs   { 8.0f };

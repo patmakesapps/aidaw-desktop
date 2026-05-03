@@ -172,12 +172,12 @@ void EddieSynthPanel::MiniPreviewKeyboard::paint (juce::Graphics& g)
 
 void EddieSynthPanel::MiniPreviewKeyboard::mouseDown (const juce::MouseEvent& event)
 {
-    triggerAt (event.getPosition());
+    triggerAt (event.getPosition(), true);
 }
 
 void EddieSynthPanel::MiniPreviewKeyboard::mouseDrag (const juce::MouseEvent& event)
 {
-    triggerAt (event.getPosition());
+    triggerAt (event.getPosition(), false);
 }
 
 void EddieSynthPanel::MiniPreviewKeyboard::mouseUp (const juce::MouseEvent&)
@@ -239,10 +239,10 @@ int EddieSynthPanel::MiniPreviewKeyboard::noteForPosition (juce::Point<int> posi
     return whiteNotes[whiteIndex];
 }
 
-void EddieSynthPanel::MiniPreviewKeyboard::triggerAt (juce::Point<int> position)
+void EddieSynthPanel::MiniPreviewKeyboard::triggerAt (juce::Point<int> position, bool forceRetrigger)
 {
     const int note = noteForPosition (position);
-    if (note < 0 || note == activeNote)
+    if (note < 0 || (! forceRetrigger && note == activeNote))
         return;
 
     activeNote = note;
@@ -303,7 +303,7 @@ EddieSynthPanel::EddieSynthPanel()
     presetName.setColour (juce::TextEditor::outlineColourId, juce::Colour (vintageCream).withAlpha (0.28f));
     addAndMakeVisible (presetName);
 
-    for (auto* button : { &savePreset, &closeButton })
+    for (auto* button : { &savePreset, &closeButton, &monoToggle })
     {
         button->addListener (this);
         addAndMakeVisible (button);
@@ -311,7 +311,9 @@ EddieSynthPanel::EddieSynthPanel()
 
     savePreset.setButtonText ("Save");
     closeButton.setButtonText ("X");
-    for (auto* button : { &savePreset, &closeButton })
+    monoToggle.setButtonText ("POLY");
+    monoToggle.setClickingTogglesState (true);
+    for (auto* button : { &savePreset, &closeButton, &monoToggle })
     {
         button->setColour (juce::TextButton::buttonColourId, juce::Colour (0xE00B0A08));
         button->setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xFF24160C));
@@ -326,6 +328,7 @@ EddieSynthPanel::EddieSynthPanel()
     addAndMakeVisible (previewKeyboard);
 
     configureSlider (gain, gainLabel, "Gain", 0.02, 0.60, 0.01);
+    configureSlider (voices, voicesLabel, "Voices", 1.0, 16.0, 1.0);
     configureSlider (saw, sawLabel, "Shape", 0.0, 1.0, 0.01);
     configureSlider (sub, subLabel, "Sub", 0.0, 0.60, 0.01);
     configureSlider (attack, attackLabel, "Attack", 1.0, 250.0, 1.0);
@@ -347,6 +350,7 @@ EddieSynthPanel::EddieSynthPanel()
         auto soft = currentSettings;
         soft.sawMix = 0.24f;
         soft.waveform = EddieWaveform::triangle;
+        soft.voices = 10;
         soft.subMix = 0.08f;
         soft.attackMs = 18.0f;
         soft.releaseMs = 220.0f;
@@ -357,6 +361,8 @@ EddieSynthPanel::EddieSynthPanel()
         auto bass = currentSettings;
         bass.outputGain = 0.22f;
         bass.waveform = EddieWaveform::square;
+        bass.mono = true;
+        bass.voices = 1;
         bass.sawMix = 0.38f;
         bass.subMix = 0.42f;
         bass.attackMs = 4.0f;
@@ -368,6 +374,7 @@ EddieSynthPanel::EddieSynthPanel()
 
         auto space = currentSettings;
         space.waveform = EddieWaveform::saw;
+        space.voices = 12;
         space.sawMix = 0.64f;
         space.subMix = 0.14f;
         space.attackMs = 12.0f;
@@ -427,6 +434,8 @@ void EddieSynthPanel::configureSlider (juce::Slider& slider,
 void EddieSynthPanel::updateSettingsFromSliders()
 {
     currentSettings.outputGain = (float) gain.getValue();
+    currentSettings.voices = (int) voices.getValue();
+    currentSettings.mono = monoToggle.getToggleState();
     currentSettings.sawMix = (float) saw.getValue();
     currentSettings.subMix = (float) sub.getValue();
     currentSettings.attackMs = (float) attack.getValue();
@@ -456,6 +465,10 @@ void EddieSynthPanel::updateSettingsFromWaveform()
 void EddieSynthPanel::updateSlidersFromSettings()
 {
     gain.setValue (currentSettings.outputGain, juce::dontSendNotification);
+    voices.setValue (currentSettings.voices, juce::dontSendNotification);
+    voices.setEnabled (! currentSettings.mono);
+    monoToggle.setToggleState (currentSettings.mono, juce::dontSendNotification);
+    monoToggle.setButtonText (currentSettings.mono ? "MONO" : "POLY");
     waveformMenu.setSelectedId (waveformToId (currentSettings.waveform), juce::dontSendNotification);
     saw.setValue (currentSettings.sawMix, juce::dontSendNotification);
     sub.setValue (currentSettings.subMix, juce::dontSendNotification);
@@ -498,6 +511,8 @@ void EddieSynthPanel::loadPresets()
         Preset preset;
         preset.name = child->getStringAttribute ("name", "Preset");
         preset.settings.outputGain = (float) child->getDoubleAttribute ("gain", preset.settings.outputGain);
+        preset.settings.mono = child->getBoolAttribute ("mono", preset.settings.mono);
+        preset.settings.voices = child->getIntAttribute ("voices", preset.settings.voices);
         preset.settings.waveform = waveformFromId (child->getIntAttribute ("waveform", waveformToId (preset.settings.waveform)));
         preset.settings.sawMix = (float) child->getDoubleAttribute ("saw", preset.settings.sawMix);
         preset.settings.subMix = (float) child->getDoubleAttribute ("sub", preset.settings.subMix);
@@ -527,6 +542,8 @@ void EddieSynthPanel::savePresets() const
         auto* item = root.createNewChildElement ("Preset");
         item->setAttribute ("name", preset.name);
         item->setAttribute ("gain", preset.settings.outputGain);
+        item->setAttribute ("mono", preset.settings.mono);
+        item->setAttribute ("voices", preset.settings.voices);
         item->setAttribute ("waveform", waveformToId (preset.settings.waveform));
         item->setAttribute ("saw", preset.settings.sawMix);
         item->setAttribute ("sub", preset.settings.subMix);
@@ -580,6 +597,16 @@ void EddieSynthPanel::buttonClicked (juce::Button* button)
         return;
     }
 
+    if (button == &monoToggle)
+    {
+        currentSettings.mono = monoToggle.getToggleState();
+        monoToggle.setButtonText (currentSettings.mono ? "MONO" : "POLY");
+        voices.setEnabled (! currentSettings.mono);
+
+        if (onSettingsChanged)
+            onSettingsChanged (currentSettings);
+        return;
+    }
 }
 
 void EddieSynthPanel::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
@@ -629,6 +656,7 @@ void EddieSynthPanel::paint (juce::Graphics& g)
 EddieSynthPanel::~EddieSynthPanel()
 {
     for (auto* s : { &gain, &saw, &sub, &attack, &decay, &sustain, &release,
+                     &voices,
                      &drive, &delayMix, &delayTime, &delayFeedback,
                      &reverbMix, &reverbSize, &reverbDamping })
         s->setLookAndFeel (nullptr);
@@ -639,6 +667,7 @@ EddieSynthPanel::~EddieSynthPanel()
 void EddieSynthPanel::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     for (auto* s : { &gain, &saw, &sub, &attack, &decay, &sustain, &release,
+                     &voices,
                      &drive, &delayMix, &delayTime, &delayFeedback,
                      &reverbMix, &reverbSize, &reverbDamping })
     {
@@ -675,6 +704,7 @@ void EddieSynthPanel::resized()
     presetName.setBounds (presetRow.removeFromLeft (sw (0.164f)));
     presetRow.removeFromLeft (sw (0.014f));
     savePreset.setBounds (presetRow.removeFromLeft (sw (0.066f)));
+    monoToggle.setBounds (rect (0.785f, 0.326f, 0.064f, 0.048f));
 
     previewKeyboard.setBounds (rect (0.060f, 0.846f, 0.880f, 0.094f));
 
@@ -714,6 +744,8 @@ void EddieSynthPanel::resized()
     placeAt (bottom, 0.510f, 0.085f, reverbSizeLabel, reverbSize);
     placeAt (bottom, 0.590f, 0.085f, reverbDampingLabel, reverbDamping);
     placeAt (bottom, 0.805f, 0.085f, driveLabel, drive);
+    placeAt (bottom, 0.900f, 0.085f, voicesLabel, voices);
+    voices.setEnabled (! currentSettings.mono);
 }
 
 } // namespace aidaw

@@ -40,7 +40,7 @@ private:
 
     private:
         int noteForPosition (juce::Point<int> position) const;
-        void triggerAt (juce::Point<int> position);
+        void triggerAt (juce::Point<int> position, bool forceRetrigger);
 
         int activeNote { -1 };
     };
@@ -79,13 +79,15 @@ private:
     juce::Label waveformLabel;
     juce::ComboBox waveformMenu;
     juce::TextEditor presetName;
-    juce::TextButton savePreset, closeButton;
+    juce::TextButton savePreset, closeButton, monoToggle;
     MiniPreviewKeyboard previewKeyboard;
 
     juce::Label gainLabel, sawLabel, subLabel, attackLabel, decayLabel, sustainLabel, releaseLabel;
+    juce::Label voicesLabel;
     juce::Label driveLabel, delayMixLabel, delayTimeLabel, delayFeedbackLabel;
     juce::Label reverbMixLabel, reverbSizeLabel, reverbDampingLabel;
     juce::Slider gain, saw, sub, attack, decay, sustain, release;
+    juce::Slider voices;
     juce::Slider drive, delayMix, delayTime, delayFeedback, reverbMix, reverbSize, reverbDamping;
 
     juce::Image faceplateImage;

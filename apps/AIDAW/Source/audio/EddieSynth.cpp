@@ -32,6 +32,64 @@ void softLimitBuffer (const juce::AudioSourceChannelInfo& info)
             data[i] = std::tanh (data[i] * 1.15f) / 1.15f;
     }
 }
+
+std::vector<MidiNote> applyVoiceMode (const std::vector<MidiNote>& source,
+                                      const EddieSynthSettings& settings,
+                                      double bpm)
+{
+    if (source.empty())
+        return source;
+
+    auto notes = source;
+    std::stable_sort (notes.begin(), notes.end(), [] (const MidiNote& a, const MidiNote& b)
+    {
+        if (a.startBeats == b.startBeats)
+            return a.pitch < b.pitch;
+
+        return a.startBeats < b.startBeats;
+    });
+
+    if (settings.mono)
+    {
+        for (size_t i = 0; i + 1 < notes.size(); ++i)
+        {
+            const double nextStart = notes[i + 1].startBeats;
+            if (notes[i].startBeats + notes[i].lengthBeats > nextStart)
+                notes[i].lengthBeats = juce::jmax (0.0, nextStart - notes[i].startBeats);
+        }
+
+        notes.erase (std::remove_if (notes.begin(), notes.end(), [] (const MidiNote& note)
+        {
+            return note.lengthBeats <= 0.0;
+        }), notes.end());
+        return notes;
+    }
+
+    const int maxVoices = juce::jlimit (1, 16, settings.voices);
+    if (maxVoices >= 16)
+        return notes;
+
+    const double releaseBeats = settings.releaseMs * 0.001 * juce::jmax (1.0, bpm) / 60.0;
+    std::vector<double> voiceEnds;
+    std::vector<MidiNote> accepted;
+    accepted.reserve (notes.size());
+
+    for (const auto& note : notes)
+    {
+        voiceEnds.erase (std::remove_if (voiceEnds.begin(), voiceEnds.end(), [&note] (double endBeat)
+        {
+            return endBeat <= note.startBeats;
+        }), voiceEnds.end());
+
+        if ((int) voiceEnds.size() >= maxVoices)
+            continue;
+
+        voiceEnds.push_back (note.startBeats + note.lengthBeats + releaseBeats);
+        accepted.push_back (note);
+    }
+
+    return accepted;
+}
 }
 
 void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
@@ -189,7 +247,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
 
     if (playing.load())
     {
-        const auto localNotes = copyNotes();
+        const auto localNotes = applyVoiceMode (copyNotes(), renderSettings, bpm);
         if (localNotes.empty())
         {
             playheadSamples.fetch_add (info.numSamples);
@@ -302,12 +360,12 @@ void EddieSynthAudioSource::triggerPreviewNote (int pitch, int velocity)
     voice.releaseEndSamples = (int64) std::ceil ((previewSeconds + msToSeconds (previewBaseSettings.releaseMs)) * sampleRate);
 
     const juce::ScopedLock lock (previewLock);
-    if (! previewVoices.empty() && previewVoices.back().note.pitch == voice.note.pitch
-        && previewVoices.back().sampleCursor < previewVoices.back().releaseEndSamples)
-        return;
+    if (previewBaseSettings.mono)
+        previewVoices.clear();
 
-    if (previewVoices.size() > 2)
-        previewVoices.erase (previewVoices.begin(), previewVoices.end() - 2);
+    const int maxPreviewVoices = juce::jlimit (1, 16, previewBaseSettings.mono ? 1 : previewBaseSettings.voices);
+    while ((int) previewVoices.size() >= maxPreviewVoices)
+        previewVoices.erase (previewVoices.begin());
 
     previewVoices.push_back (voice);
 }
