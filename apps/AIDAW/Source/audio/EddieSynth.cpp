@@ -70,7 +70,10 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
             continue;
 
         const double phaseCycles = secondsFromStart * frequency;
-        const float sample = oscillatorSample (phaseCycles, localSettings.sawMix, localSettings.subMix)
+        const float sample = oscillatorSample (phaseCycles,
+                                               localSettings.waveform,
+                                               localSettings.sawMix,
+                                               localSettings.subMix)
                            * env * velocityGain * localSettings.outputGain;
 
         for (int ch = 0; ch < channels; ++ch)
@@ -78,16 +81,39 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
     }
 }
 
-float EddieSynthVoiceRenderer::oscillatorSample (double phaseCycles, float sawMix, float subMix)
+float EddieSynthVoiceRenderer::oscillatorSample (double phaseCycles,
+                                                 EddieWaveform waveform,
+                                                 float shapeAmount,
+                                                 float subMix)
 {
     const double wrapped = phaseCycles - std::floor (phaseCycles);
-    const float saw = (float) (2.0 * wrapped - 1.0);
     const float sine = (float) std::sin (wrapped * twoPi);
+
+    float selected = sine;
+    switch (waveform)
+    {
+        case EddieWaveform::sine:
+            selected = sine;
+            break;
+
+        case EddieWaveform::saw:
+            selected = (float) (2.0 * wrapped - 1.0);
+            break;
+
+        case EddieWaveform::square:
+            selected = wrapped < 0.5 ? 1.0f : -1.0f;
+            break;
+
+        case EddieWaveform::triangle:
+            selected = (float) (4.0 * std::abs (wrapped - 0.5) - 1.0);
+            break;
+    }
 
     const double subWrapped = phaseCycles * 0.5 - std::floor (phaseCycles * 0.5);
     const float sub = (float) std::sin (subWrapped * twoPi);
 
-    const float main = saw * sawMix + sine * (1.0f - sawMix);
+    const float shape = juce::jlimit (0.0f, 1.0f, shapeAmount);
+    const float main = selected * shape + sine * (1.0f - shape);
     return juce::jlimit (-1.0f, 1.0f, main + sub * subMix);
 }
 

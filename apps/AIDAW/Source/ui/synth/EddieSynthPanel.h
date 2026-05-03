@@ -42,6 +42,7 @@ private:
                           double interval);
 
     void updateSettingsFromSliders();
+    void updateSettingsFromWaveform();
     void updateSlidersFromSettings();
     void loadPresets();
     void savePresets() const;
@@ -57,6 +58,8 @@ private:
 
     juce::Label title;
     juce::ComboBox presetMenu;
+    juce::Label waveformLabel;
+    juce::ComboBox waveformMenu;
     juce::TextEditor presetName;
     juce::TextButton savePreset, closeButton, previewC, previewA;
 

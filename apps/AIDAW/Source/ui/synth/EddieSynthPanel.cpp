@@ -11,6 +11,23 @@ namespace
 constexpr uint32 panelBg = 0xFF10151C;
 constexpr uint32 controlBg = 0xFF151D26;
 constexpr uint32 controlLine = 0x5538E0FF;
+
+int waveformToId (EddieWaveform waveform)
+{
+    return (int) waveform + 1;
+}
+
+EddieWaveform waveformFromId (int id)
+{
+    switch (id)
+    {
+        case 1: return EddieWaveform::sine;
+        case 2: return EddieWaveform::saw;
+        case 3: return EddieWaveform::square;
+        case 4: return EddieWaveform::triangle;
+        default: return EddieWaveform::saw;
+    }
+}
 }
 
 EddieSynthPanel::EddieSynthPanel()
@@ -26,6 +43,18 @@ EddieSynthPanel::EddieSynthPanel()
 
     presetMenu.addListener (this);
     addAndMakeVisible (presetMenu);
+
+    waveformLabel.setText ("Wave", juce::dontSendNotification);
+    waveformLabel.setJustificationType (juce::Justification::centredLeft);
+    waveformLabel.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.82f));
+    addAndMakeVisible (waveformLabel);
+
+    waveformMenu.addItem ("Sine", waveformToId (EddieWaveform::sine));
+    waveformMenu.addItem ("Saw", waveformToId (EddieWaveform::saw));
+    waveformMenu.addItem ("Square", waveformToId (EddieWaveform::square));
+    waveformMenu.addItem ("Triangle", waveformToId (EddieWaveform::triangle));
+    waveformMenu.addListener (this);
+    addAndMakeVisible (waveformMenu);
 
     presetName.setText ("New preset", juce::dontSendNotification);
     presetName.setSelectAllWhenFocused (true);
@@ -46,7 +75,7 @@ EddieSynthPanel::EddieSynthPanel()
     previewA.setButtonText ("A4");
 
     configureSlider (gain, gainLabel, "Gain", 0.02, 0.60, 0.01);
-    configureSlider (saw, sawLabel, "Saw", 0.0, 1.0, 0.01);
+    configureSlider (saw, sawLabel, "Shape", 0.0, 1.0, 0.01);
     configureSlider (sub, subLabel, "Sub", 0.0, 0.60, 0.01);
     configureSlider (attack, attackLabel, "Attack", 1.0, 250.0, 1.0);
     configureSlider (decay, decayLabel, "Decay", 1.0, 500.0, 1.0);
@@ -59,6 +88,7 @@ EddieSynthPanel::EddieSynthPanel()
         addPreset ("Eddie Init", currentSettings);
         auto soft = currentSettings;
         soft.sawMix = 0.24f;
+        soft.waveform = EddieWaveform::triangle;
         soft.subMix = 0.08f;
         soft.attackMs = 18.0f;
         soft.releaseMs = 220.0f;
@@ -66,6 +96,7 @@ EddieSynthPanel::EddieSynthPanel()
 
         auto bass = currentSettings;
         bass.outputGain = 0.22f;
+        bass.waveform = EddieWaveform::square;
         bass.sawMix = 0.38f;
         bass.subMix = 0.42f;
         bass.attackMs = 4.0f;
@@ -127,9 +158,18 @@ void EddieSynthPanel::updateSettingsFromSliders()
         onSettingsChanged (currentSettings);
 }
 
+void EddieSynthPanel::updateSettingsFromWaveform()
+{
+    currentSettings.waveform = waveformFromId (waveformMenu.getSelectedId());
+
+    if (onSettingsChanged)
+        onSettingsChanged (currentSettings);
+}
+
 void EddieSynthPanel::updateSlidersFromSettings()
 {
     gain.setValue (currentSettings.outputGain, juce::dontSendNotification);
+    waveformMenu.setSelectedId (waveformToId (currentSettings.waveform), juce::dontSendNotification);
     saw.setValue (currentSettings.sawMix, juce::dontSendNotification);
     sub.setValue (currentSettings.subMix, juce::dontSendNotification);
     attack.setValue (currentSettings.attackMs, juce::dontSendNotification);
@@ -164,6 +204,7 @@ void EddieSynthPanel::loadPresets()
         Preset preset;
         preset.name = child->getStringAttribute ("name", "Preset");
         preset.settings.outputGain = (float) child->getDoubleAttribute ("gain", preset.settings.outputGain);
+        preset.settings.waveform = waveformFromId (child->getIntAttribute ("waveform", waveformToId (preset.settings.waveform)));
         preset.settings.sawMix = (float) child->getDoubleAttribute ("saw", preset.settings.sawMix);
         preset.settings.subMix = (float) child->getDoubleAttribute ("sub", preset.settings.subMix);
         preset.settings.attackMs = (float) child->getDoubleAttribute ("attack", preset.settings.attackMs);
@@ -185,6 +226,7 @@ void EddieSynthPanel::savePresets() const
         auto* item = root.createNewChildElement ("Preset");
         item->setAttribute ("name", preset.name);
         item->setAttribute ("gain", preset.settings.outputGain);
+        item->setAttribute ("waveform", waveformToId (preset.settings.waveform));
         item->setAttribute ("saw", preset.settings.sawMix);
         item->setAttribute ("sub", preset.settings.subMix);
         item->setAttribute ("attack", preset.settings.attackMs);
@@ -238,6 +280,12 @@ void EddieSynthPanel::buttonClicked (juce::Button* button)
 
 void EddieSynthPanel::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
 {
+    if (comboBoxThatHasChanged == &waveformMenu)
+    {
+        updateSettingsFromWaveform();
+        return;
+    }
+
     if (comboBoxThatHasChanged != &presetMenu)
         return;
 
@@ -295,6 +343,9 @@ void EddieSynthPanel::resized()
     area.removeFromTop (12);
     auto presetRow = area.removeFromTop (36);
     presetMenu.setBounds (presetRow.removeFromLeft (220));
+    presetRow.removeFromLeft (10);
+    waveformLabel.setBounds (presetRow.removeFromLeft (44));
+    waveformMenu.setBounds (presetRow.removeFromLeft (130));
     presetRow.removeFromLeft (10);
     presetName.setBounds (presetRow.removeFromLeft (220));
     presetRow.removeFromLeft (10);

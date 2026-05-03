@@ -8,9 +8,18 @@
 namespace aidaw
 {
 
+enum class EddieWaveform
+{
+    sine = 0,
+    saw,
+    square,
+    triangle
+};
+
 struct EddieSynthSettings
 {
     float outputGain { 0.18f };
+    EddieWaveform waveform { EddieWaveform::saw };
     float sawMix     { 0.72f };
     float subMix     { 0.20f };
     float attackMs   { 8.0f };
@@ -33,7 +42,10 @@ public:
                             int numSamples);
 
 private:
-    static float oscillatorSample (double phaseCycles, float sawMix, float subMix);
+    static float oscillatorSample (double phaseCycles,
+                                   EddieWaveform waveform,
+                                   float shapeAmount,
+                                   float subMix);
     static float envelopeGain (double secondsFromStart,
                                double secondsFromEnd,
                                const EddieSynthSettings& settings);

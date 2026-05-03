@@ -89,6 +89,7 @@ target_link_libraries(AIDAW PRIVATE
     juce::juce_audio_devices
     juce::juce_audio_utils
     juce::juce_audio_formats
+    juce::juce_dsp
 )
 
 juce_generate_juce_header(AIDAW)
