@@ -67,10 +67,10 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.10f));
         g.drawEllipse (knob.reduced (5.0f), 1.0f);
 
-        const auto pointerLength = radius * 0.62f;
+        const auto pointerLength = radius * 0.34f;
         const auto pointerThickness = juce::jmax (2.5f, radius * 0.07f);
         juce::Path pointer;
-        pointer.addRoundedRectangle (-pointerThickness * 0.5f, -radius + 9.0f,
+        pointer.addRoundedRectangle (-pointerThickness * 0.5f, -radius + 8.0f,
                                      pointerThickness, pointerLength, pointerThickness * 0.5f);
         g.setColour (accent);
         g.fillPath (pointer, juce::AffineTransform::rotation (angle).translated (centre.x, centre.y));
@@ -411,6 +411,9 @@ void EddieSynthPanel::configureSlider (juce::Slider& slider,
 
     slider.setRange (min, max, interval);
     slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+    slider.setRotaryParameters (juce::degreesToRadians (225.0f),
+                                juce::degreesToRadians (495.0f),
+                                true);
     slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 68, 22);
     slider.setColour (juce::Slider::rotarySliderFillColourId, juce::Colour (vintageOrange));
     slider.setColour (juce::Slider::rotarySliderOutlineColourId, juce::Colour (vintageCream).withAlpha (0.22f));
@@ -663,53 +666,54 @@ void EddieSynthPanel::resized()
     subtitle.setBounds ({});
     closeButton.setBounds (rect (0.953f, 0.034f, 0.026f, 0.060f));
 
-    auto presetRow = rect (0.070f, 0.326f, 0.630f, 0.050f);
+    auto presetRow = rect (0.070f, 0.326f, 0.585f, 0.048f);
     presetMenu.setBounds (presetRow.removeFromLeft (sw (0.165f)));
-    presetRow.removeFromLeft (sw (0.012f));
-    waveformLabel.setBounds (presetRow.removeFromLeft (sw (0.035f)));
-    waveformMenu.setBounds (presetRow.removeFromLeft (sw (0.095f)));
-    presetRow.removeFromLeft (sw (0.012f));
-    presetName.setBounds (presetRow.removeFromLeft (sw (0.165f)));
-    presetRow.removeFromLeft (sw (0.012f));
-    savePreset.setBounds (presetRow.removeFromLeft (sw (0.065f)));
+    presetRow.removeFromLeft (sw (0.018f));
+    waveformLabel.setBounds (presetRow.removeFromLeft (sw (0.034f)));
+    waveformMenu.setBounds (presetRow.removeFromLeft (sw (0.096f)));
+    presetRow.removeFromLeft (sw (0.014f));
+    presetName.setBounds (presetRow.removeFromLeft (sw (0.164f)));
+    presetRow.removeFromLeft (sw (0.014f));
+    savePreset.setBounds (presetRow.removeFromLeft (sw (0.066f)));
 
-    previewKeyboard.setBounds (rect (0.060f, 0.846f, 0.880f, 0.095f));
+    previewKeyboard.setBounds (rect (0.060f, 0.846f, 0.880f, 0.094f));
 
     const int labelH = 20;
-    const int knobW = juce::jlimit (78, 112, sw (0.060f));
-    const int knobH = juce::jlimit (100, 130, sh (0.140f));
+    const int knobW = juce::jlimit (74, 104, sw (0.054f));
+    const int knobH = juce::jlimit (96, 122, sh (0.132f));
 
-    auto place = [] (juce::Rectangle<int>& row, juce::Label& label, juce::Slider& slider, int w, int labelHeight, int knobHeight)
+    auto placeAt = [knobW, knobH, labelH] (juce::Rectangle<int> section,
+                                           float centerX,
+                                           float topY,
+                                           juce::Label& label,
+                                           juce::Slider& slider)
     {
-        auto cell = row.removeFromLeft (w);
-        label.setBounds (cell.removeFromTop (labelHeight));
-        slider.setBounds (cell.removeFromTop (knobHeight));
-        row.removeFromLeft (10);
+        const int x = section.getX() + (int) std::round (section.getWidth() * centerX) - knobW / 2;
+        const int y = section.getY() + (int) std::round (section.getHeight() * topY);
+        label.setBounds (x, y, knobW, labelH);
+        slider.setBounds (x, y + labelH + 4, knobW, knobH);
     };
 
-    auto oscRow = rect (0.076f, 0.420f, 0.285f, 0.160f);
-    place (oscRow, sawLabel, saw, knobW, labelH, knobH);
-    place (oscRow, subLabel, sub, knobW, labelH, knobH);
-    place (oscRow, gainLabel, gain, knobW, labelH, knobH);
+    auto leftTop = rect (0.060f, 0.390f, 0.445f, 0.250f);
+    auto rightTop = rect (0.505f, 0.390f, 0.435f, 0.250f);
+    auto bottom = rect (0.060f, 0.640f, 0.880f, 0.190f);
 
-    auto envRow = rect (0.395f, 0.420f, 0.380f, 0.160f);
-    place (envRow, attackLabel, attack, knobW, labelH, knobH);
-    place (envRow, decayLabel, decay, knobW, labelH, knobH);
-    place (envRow, sustainLabel, sustain, knobW, labelH, knobH);
-    place (envRow, releaseLabel, release, knobW, labelH, knobH);
+    placeAt (leftTop, 0.105f, 0.135f, sawLabel, saw);
+    placeAt (leftTop, 0.255f, 0.135f, subLabel, sub);
+    placeAt (leftTop, 0.405f, 0.135f, gainLabel, gain);
 
-    auto delayRow = rect (0.076f, 0.655f, 0.285f, 0.150f);
-    place (delayRow, delayMixLabel, delayMix, knobW, labelH, knobH);
-    place (delayRow, delayTimeLabel, delayTime, knobW, labelH, knobH);
-    place (delayRow, delayFeedbackLabel, delayFeedback, knobW, labelH, knobH);
+    placeAt (rightTop, 0.140f, 0.135f, attackLabel, attack);
+    placeAt (rightTop, 0.295f, 0.135f, decayLabel, decay);
+    placeAt (rightTop, 0.450f, 0.135f, sustainLabel, sustain);
+    placeAt (rightTop, 0.605f, 0.135f, releaseLabel, release);
 
-    auto reverbRow = rect (0.395f, 0.655f, 0.285f, 0.150f);
-    place (reverbRow, reverbMixLabel, reverbMix, knobW, labelH, knobH);
-    place (reverbRow, reverbSizeLabel, reverbSize, knobW, labelH, knobH);
-    place (reverbRow, reverbDampingLabel, reverbDamping, knobW, labelH, knobH);
-
-    auto outputRow = rect (0.710f, 0.655f, 0.150f, 0.150f);
-    place (outputRow, driveLabel, drive, knobW, labelH, knobH);
+    placeAt (bottom, 0.055f, 0.085f, delayMixLabel, delayMix);
+    placeAt (bottom, 0.135f, 0.085f, delayTimeLabel, delayTime);
+    placeAt (bottom, 0.215f, 0.085f, delayFeedbackLabel, delayFeedback);
+    placeAt (bottom, 0.430f, 0.085f, reverbMixLabel, reverbMix);
+    placeAt (bottom, 0.510f, 0.085f, reverbSizeLabel, reverbSize);
+    placeAt (bottom, 0.590f, 0.085f, reverbDampingLabel, reverbDamping);
+    placeAt (bottom, 0.805f, 0.085f, driveLabel, drive);
 }
 
 } // namespace aidaw
