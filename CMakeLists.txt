@@ -14,6 +14,11 @@ juce_add_gui_app(AIDAW
     PRODUCT_NAME "AIDAW"
 )
 
+juce_add_binary_data(AIDAWAssets
+    SOURCES
+        apps/AIDAW/Assets/Eddie/eddie_full_plugin_frame.png
+)
+
 # ---------- Sources ----------
 target_sources(AIDAW PRIVATE
     # App entry
@@ -90,6 +95,7 @@ target_link_libraries(AIDAW PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_formats
     juce::juce_dsp
+    AIDAWAssets
 )
 
 juce_generate_juce_header(AIDAW)

@@ -26,6 +26,13 @@ struct EddieSynthSettings
     float decayMs    { 80.0f };
     float sustain    { 0.70f };
     float releaseMs  { 120.0f };
+    float drive      { 0.0f };
+    float delayMix   { 0.0f };
+    float delayMs    { 260.0f };
+    float delayFeedback { 0.24f };
+    float reverbMix  { 0.0f };
+    float reverbSize { 0.36f };
+    float reverbDamping { 0.42f };
 };
 
 class EddieSynthVoiceRenderer
@@ -80,6 +87,7 @@ private:
 
     std::vector<MidiNote> copyNotes() const;
     void renderPreviewVoices (const juce::AudioSourceChannelInfo& info);
+    void processPostEffects (const juce::AudioSourceChannelInfo& info, const EddieSynthSettings& renderSettings);
 
     mutable juce::CriticalSection notesLock;
     std::vector<MidiNote> notes;
@@ -93,6 +101,10 @@ private:
     std::atomic<double> pendingSeekBeats { 0.0 };
     double sampleRate { 0.0 };
     double bpm { 120.0 };
+
+    juce::AudioBuffer<float> delayBuffer;
+    int delayWritePosition { 0 };
+    juce::dsp::Reverb reverb;
 };
 
 } // namespace aidaw

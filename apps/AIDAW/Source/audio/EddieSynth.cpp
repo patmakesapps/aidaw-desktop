@@ -152,6 +152,12 @@ float EddieSynthVoiceRenderer::envelopeGain (double secondsFromStart,
 void EddieSynthAudioSource::prepareToPlay (int, double sampleRateIn)
 {
     sampleRate = sampleRateIn;
+    delayBuffer.setSize (2, (int) std::ceil (juce::jmax (1.0, sampleRate) * 3.0));
+    delayBuffer.clear();
+    delayWritePosition = 0;
+    juce::dsp::ProcessSpec spec { sampleRate, 512, 2 };
+    reverb.prepare (spec);
+    reverb.reset();
 
     const auto pending = pendingSeekBeats.load();
     if (pending > 0.0)
@@ -164,6 +170,9 @@ void EddieSynthAudioSource::prepareToPlay (int, double sampleRateIn)
 void EddieSynthAudioSource::releaseResources()
 {
     sampleRate = 0.0;
+    delayBuffer.setSize (0, 0);
+    delayWritePosition = 0;
+    reverb.reset();
 }
 
 void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInfo& info)
@@ -176,14 +185,16 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
     if (sampleRate <= 0.0)
         return;
 
+    const auto renderSettings = getSettings();
+
     if (playing.load())
     {
-        const auto renderSettings = getSettings();
         const auto localNotes = copyNotes();
         if (localNotes.empty())
         {
             playheadSamples.fetch_add (info.numSamples);
             renderPreviewVoices (info);
+            processPostEffects (info, renderSettings);
             softLimitBuffer (info);
             return;
         }
@@ -215,6 +226,7 @@ void EddieSynthAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInf
     }
 
     renderPreviewVoices (info);
+    processPostEffects (info, renderSettings);
     softLimitBuffer (info);
 }
 
@@ -322,6 +334,7 @@ void EddieSynthAudioSource::renderPreviewVoices (const juce::AudioSourceChannelI
         previewSettings.outputGain *= 0.55f;
         previewSettings.sawMix = juce::jmin (previewSettings.sawMix, 0.45f);
         previewSettings.subMix = juce::jmin (previewSettings.subMix, 0.10f);
+        previewSettings.drive *= 0.72f;
 
         EddieSynthVoiceRenderer::renderNote (voice.note, previewSettings, sampleRate, bpm, voice.sampleCursor,
                                              *info.buffer, info.startSample, 0, info.numSamples);
@@ -334,6 +347,74 @@ void EddieSynthAudioSource::renderPreviewVoices (const juce::AudioSourceChannelI
                                              return voice.sampleCursor >= voice.releaseEndSamples;
                                          }),
                          previewVoices.end());
+}
+
+void EddieSynthAudioSource::processPostEffects (const juce::AudioSourceChannelInfo& info,
+                                                const EddieSynthSettings& renderSettings)
+{
+    if (info.buffer == nullptr || sampleRate <= 0.0 || info.numSamples <= 0)
+        return;
+
+    const int numChannels = info.buffer->getNumChannels();
+    const float driveAmount = juce::jlimit (0.0f, 1.0f, renderSettings.drive);
+    if (driveAmount > 0.001f)
+    {
+        const float inputGain = 1.0f + driveAmount * 7.0f;
+        const float outputTrim = 1.0f / (1.0f + driveAmount * 1.8f);
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto* data = info.buffer->getWritePointer (ch, info.startSample);
+            for (int i = 0; i < info.numSamples; ++i)
+                data[i] = std::tanh (data[i] * inputGain) * outputTrim;
+        }
+    }
+
+    const float delayMix = juce::jlimit (0.0f, 1.0f, renderSettings.delayMix);
+    if (delayMix > 0.001f && delayBuffer.getNumSamples() > 0)
+    {
+        const int delayChannels = delayBuffer.getNumChannels();
+        const int delayLength = delayBuffer.getNumSamples();
+        const int delaySamples = juce::jlimit (1, delayLength - 1,
+                                               (int) std::round (renderSettings.delayMs * 0.001f * sampleRate));
+        const float feedback = juce::jlimit (0.0f, 0.92f, renderSettings.delayFeedback);
+
+        for (int i = 0; i < info.numSamples; ++i)
+        {
+            const int readPosition = (delayWritePosition + delayLength - delaySamples) % delayLength;
+            for (int ch = 0; ch < numChannels; ++ch)
+            {
+                auto* data = info.buffer->getWritePointer (ch, info.startSample);
+                const int delayChannel = ch % delayChannels;
+                const float dry = data[i];
+                const float delayed = delayBuffer.getSample (delayChannel, readPosition);
+                data[i] = dry + delayed * delayMix;
+                delayBuffer.setSample (delayChannel, delayWritePosition, dry + delayed * feedback);
+            }
+
+            delayWritePosition = (delayWritePosition + 1) % delayLength;
+        }
+    }
+
+    const float reverbMix = juce::jlimit (0.0f, 1.0f, renderSettings.reverbMix);
+    if (reverbMix > 0.001f)
+    {
+        juce::dsp::Reverb::Parameters params;
+        params.roomSize = juce::jlimit (0.0f, 1.0f, renderSettings.reverbSize);
+        params.damping = juce::jlimit (0.0f, 1.0f, renderSettings.reverbDamping);
+        params.width = 0.86f;
+        params.wetLevel = reverbMix;
+        params.dryLevel = 1.0f - reverbMix * 0.28f;
+        params.freezeMode = 0.0f;
+        reverb.setParameters (params);
+
+        if (numChannels <= 2)
+        {
+            juce::dsp::AudioBlock<float> block (*info.buffer);
+            auto activeBlock = block.getSubBlock ((size_t) info.startSample, (size_t) info.numSamples);
+            juce::dsp::ProcessContextReplacing<float> context (activeBlock);
+            reverb.process (context);
+        }
+    }
 }
 
 } // namespace aidaw

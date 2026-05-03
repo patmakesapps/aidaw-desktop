@@ -28,6 +28,23 @@ public:
     void resized() override;
 
 private:
+    class MiniPreviewKeyboard : public juce::Component
+    {
+    public:
+        std::function<void(int, int)> onPreviewNote;
+
+        void paint (juce::Graphics& g) override;
+        void mouseDown (const juce::MouseEvent& event) override;
+        void mouseDrag (const juce::MouseEvent& event) override;
+        void mouseUp (const juce::MouseEvent&) override;
+
+    private:
+        int noteForPosition (juce::Point<int> position) const;
+        void triggerAt (juce::Point<int> position);
+
+        int activeNote { -1 };
+    };
+
     struct Preset
     {
         juce::String name;
@@ -57,14 +74,22 @@ private:
     std::vector<Preset> presets;
 
     juce::Label title;
+    juce::Label subtitle;
     juce::ComboBox presetMenu;
     juce::Label waveformLabel;
     juce::ComboBox waveformMenu;
     juce::TextEditor presetName;
-    juce::TextButton savePreset, closeButton, previewC, previewA;
+    juce::TextButton savePreset, closeButton;
+    MiniPreviewKeyboard previewKeyboard;
 
     juce::Label gainLabel, sawLabel, subLabel, attackLabel, decayLabel, sustainLabel, releaseLabel;
+    juce::Label driveLabel, delayMixLabel, delayTimeLabel, delayFeedbackLabel;
+    juce::Label reverbMixLabel, reverbSizeLabel, reverbDampingLabel;
     juce::Slider gain, saw, sub, attack, decay, sustain, release;
+    juce::Slider drive, delayMix, delayTime, delayFeedback, reverbMix, reverbSize, reverbDamping;
+
+    juce::Image faceplateImage;
+    std::unique_ptr<juce::LookAndFeel_V4> knobLook;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (EddieSynthPanel)
 };
