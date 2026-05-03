@@ -50,6 +50,8 @@ target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/ui/arranger/ArrangerFileUtils.cpp
     apps/AIDAW/Source/ui/arranger/TrackLaneComponent.h
     apps/AIDAW/Source/ui/arranger/TrackLaneComponent.cpp
+    apps/AIDAW/Source/ui/arranger/ArrangerHeaderStrip.h
+    apps/AIDAW/Source/ui/arranger/ArrangerHeaderStrip.cpp
     apps/AIDAW/Source/ui/arranger/ArrangerCanvas.h
     apps/AIDAW/Source/ui/arranger/ArrangerCanvas.cpp
     apps/AIDAW/Source/ui/arranger/Arranger.h

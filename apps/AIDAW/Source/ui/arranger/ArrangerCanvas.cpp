@@ -29,39 +29,56 @@ void ArrangerCanvas::paint(juce::Graphics& g)
     g.setColour(juce::Colour(Theme::colHeaderDiv));
     g.fillRect(gridX0, 0, 1, H);
 
-    // Adaptive bar label stride: skip labels when bars are too close together
+    // Adaptive grid density. Frame-all can push beats only a few pixels apart;
+    // at that scale draw bars instead of turning the playlist into a comb.
     const double pixPerBar = ppb * 4.0;
-    int barLabelStride = 1;
-    if (pixPerBar < 44.0)
+    int barLineStride = 1;
+    if (pixPerBar < 12.0)
     {
-        const int raw = (int) std::ceil(44.0 / pixPerBar);
-        barLabelStride = 1;
+        const int raw = (int) std::ceil(12.0 / juce::jmax(1.0, pixPerBar));
+        while (barLineStride < raw) barLineStride <<= 1;
+    }
+
+    int barLabelStride = barLineStride;
+    if (pixPerBar * barLabelStride < 58.0)
+    {
+        const int raw = (int) std::ceil(58.0 / juce::jmax(1.0, pixPerBar));
         while (barLabelStride < raw) barLabelStride <<= 1;
     }
 
-    // --- Bars & beats (no ruler background; no zebra rows) ---
-    for (int beat = 0; beat <= totalBeats; ++beat)
+    const bool drawBeatLines = ppb >= 10.0;
+    if (drawBeatLines)
     {
-        const int x = gridX0 + (int) std::round(beat * ppb);
-        const bool isBar = (beat % 4) == 0;
+        g.setColour(juce::Colour(Theme::colGridBeat));
+        for (int beat = 0; beat <= totalBeats; ++beat)
+        {
+            if ((beat % 4) == 0)
+                continue;
 
-        g.setColour(juce::Colour(isBar ? Theme::colGridBar : Theme::colGridBeat));
+            const int x = gridX0 + (int) std::round(beat * ppb);
+            g.fillRect(x, rulerH, 1, H - rulerH);
+        }
+    }
+
+    const int totalBars = (int) std::ceil(totalBeats / 4.0);
+    for (int bar = 0; bar <= totalBars; bar += barLineStride)
+    {
+        const int beat = bar * 4;
+        const int x = gridX0 + (int) std::round(beat * ppb);
+
+        g.setColour(juce::Colour(Theme::colGridBar));
         g.fillRect(x, rulerH, 1, H - rulerH);
 
-        if (isBar)
-        {
-            g.setColour(juce::Colour(Theme::colBarTick));
-            g.fillRect(x, 0, 1, rulerH);
+        g.setColour(juce::Colour(Theme::colBarTick));
+        g.fillRect(x, 0, 1, rulerH);
 
-            const int barNum = beat / 4;
-            if (barNum % barLabelStride == 0)
-            {
-                g.setColour(juce::Colour(Theme::colBarLabel));
-                g.setFont(11.0f);
-                g.drawFittedText(juce::String(barNum + 1),
-                                 x + 4, 2, 40, rulerH - 4,
-                                 juce::Justification::centredLeft, 1);
-            }
+        if ((bar % barLabelStride) == 0)
+        {
+            g.setColour(juce::Colour(Theme::colBarLabel));
+            g.setFont(11.0f);
+            g.drawFittedText(juce::String(bar + 1),
+                             x + 4, 2, 40, rulerH - 4,
+                             juce::Justification::centredLeft, 1);
         }
     }
 

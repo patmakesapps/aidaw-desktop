@@ -4,7 +4,8 @@
       "Bash(cmake --build . --config Debug --target AIDAW)",
       "Read(//mnt/c/**)",
       "Bash(dir C:\\\\\\\\AIDAW)",
-      "Bash(cmake --build C:/AIDAW/build --config Debug)"
+      "Bash(cmake --build C:/AIDAW/build --config Debug)",
+      "Bash(cmake --build build --config Debug --target AIDAW)"
     ]
   }
 }

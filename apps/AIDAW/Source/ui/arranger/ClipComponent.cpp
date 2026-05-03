@@ -10,18 +10,25 @@ ClipComponent::ClipComponent(ClipModel& m,
       onChanged(std::move(changedCB)),
       fm(fmIn),
       bpmRef(bpmRefIn),
-      thumb(512, fmIn, cacheIn)
+      thumb(256, fmIn, cacheIn)
 {
     setInterceptsMouseClicks(true, true);
-    setBufferedToImage(true);
+    // Intentionally NOT setBufferedToImage: when zoomed in, a clip's
+    // component can be hundreds of thousands of pixels wide. Buffering
+    // would allocate an image of that full size and stall drag/zoom on
+    // long files. Repainting via drawChannels is clipped to the visible
+    // dirty rect by JUCE, which is fast enough.
 
     if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
     {
+        if (model.showImportSpinner)
+            spinnerVisibleUntilMs = juce::Time::getMillisecondCounter() + 650;
+
         (void) ThumbPersistence::load(thumb, model.file);
         thumb.setSource(new juce::FileInputSource(model.file)); // takes ownership
 
-        if (thumb.getTotalLength() <= 0.0)
-            startTimerHz(20);
+        if (model.showImportSpinner)
+            startTimerHz(30);
     }
 
     thumb.addChangeListener(this);
@@ -44,6 +51,15 @@ void ClipComponent::setSelected(bool on)
     repaint();
 }
 
+void ClipComponent::setDragPreview(bool on)
+{
+    if (dragPreview == on)
+        return;
+
+    dragPreview = on;
+    repaint();
+}
+
 juce::Rectangle<int> ClipComponent::leftHandle() const
 {
     return getLocalBounds().withWidth(6);
@@ -51,7 +67,7 @@ juce::Rectangle<int> ClipComponent::leftHandle() const
 
 juce::Rectangle<int> ClipComponent::rightHandle() const
 {
-    return getLocalBounds().withX(getRight() - 6).withWidth(6);
+    return getLocalBounds().withX(getWidth() - 6).withWidth(6);
 }
 
 void ClipComponent::paint(juce::Graphics& g)
@@ -59,7 +75,9 @@ void ClipComponent::paint(juce::Graphics& g)
     auto r = getLocalBounds().toFloat();
 
     // Body
-    g.setColour(selected ? juce::Colour(0xFF2E3A52) : juce::Colour(0xFF373737));
+    g.setColour(dragPreview ? juce::Colour(0xFF234C5F)
+                             : (selected ? juce::Colour(0xFF2E3A52)
+                                         : juce::Colour(0xFF373737)));
     g.fillRoundedRectangle(r, 8.0f);
 
     // Waveform / MIDI preview area
@@ -101,7 +119,8 @@ void ClipComponent::paint(juce::Graphics& g)
         g.drawText(name.isNotEmpty() ? name : "MIDI Loop", getLocalBounds().reduced(10, 6),
                    juce::Justification::topLeft, true);
     }
-    else if (thumb.getTotalLength() > 0.0)
+    else if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile()
+             && thumb.getTotalLength() > 0.0)
     {
         g.setColour(juce::Colour(0xFFB4B4B4));
 
@@ -115,25 +134,64 @@ void ClipComponent::paint(juce::Graphics& g)
         const double s = juce::jlimit(0.0, fileLenSec, startSecInFile);
         const double e = juce::jlimit(s,    fileLenSec, endSecInFile);
 
-        // Draw ONLY the subrange represented by this clip
-        thumb.drawChannels(g, inner, s, e, 1.0f);
+        // Only render the columns that actually fall inside the current
+        // graphics clip (i.e. visible on screen). For huge zoomed clips
+        // this avoids iterating hundreds of thousands of off-screen
+        // pixel columns inside JUCE's drawChannels loop.
+        const auto clipBounds = g.getClipBounds();
+        const auto visible    = inner.getIntersection(clipBounds);
+        if (! visible.isEmpty() && inner.getWidth() > 0 && e > s)
+        {
+            const double secsPerPx = (e - s) / (double) inner.getWidth();
+            const double visStart  = s + (visible.getX()     - inner.getX()) * secsPerPx;
+            const double visEnd    = s + (visible.getRight() - inner.getX()) * secsPerPx;
+            thumb.drawChannels(g, visible,
+                               juce::jlimit(0.0, fileLenSec, visStart),
+                               juce::jlimit(0.0, fileLenSec, visEnd),
+                               1.0f);
+        }
+
+        const bool showSpinner = model.showImportSpinner
+                              && juce::Time::getMillisecondCounter() < spinnerVisibleUntilMs;
+        if (showSpinner)
+        {
+            g.setColour(juce::Colour(Theme::colBgPanel).withAlpha(0.42f));
+            g.fillRoundedRectangle(inner.toFloat(), 5.0f);
+
+            const float cx = r.getCentreX();
+            const float cy = r.getCentreY();
+            const float rad = juce::jmin(r.getWidth() * 0.12f, r.getHeight() * 0.28f, 12.0f);
+
+            juce::Path arc;
+            arc.addArc(cx - rad, cy - rad, rad * 2.0f, rad * 2.0f,
+                       spinnerAngle,
+                       spinnerAngle + juce::MathConstants<float>::pi * 1.3f,
+                       true);
+            g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.95f));
+            g.strokePath(arc, juce::PathStrokeType(2.0f,
+                              juce::PathStrokeType::curved,
+                              juce::PathStrokeType::rounded));
+        }
     }
     else if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
     {
-        // Loading: spinner + filename
-        const float cx = r.getCentreX();
-        const float cy = r.getCentreY();
-        const float rad = juce::jmin(r.getWidth() * 0.12f, r.getHeight() * 0.28f, 12.0f);
+        if (model.showImportSpinner
+            && juce::Time::getMillisecondCounter() < spinnerVisibleUntilMs)
+        {
+            const float cx = r.getCentreX();
+            const float cy = r.getCentreY();
+            const float rad = juce::jmin(r.getWidth() * 0.12f, r.getHeight() * 0.28f, 12.0f);
 
-        juce::Path arc;
-        arc.addArc(cx - rad, cy - rad, rad * 2.0f, rad * 2.0f,
-                   spinnerAngle,
-                   spinnerAngle + juce::MathConstants<float>::pi * 1.3f,
-                   true);
-        g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.85f));
-        g.strokePath(arc, juce::PathStrokeType(2.0f,
-                          juce::PathStrokeType::curved,
-                          juce::PathStrokeType::rounded));
+            juce::Path arc;
+            arc.addArc(cx - rad, cy - rad, rad * 2.0f, rad * 2.0f,
+                       spinnerAngle,
+                       spinnerAngle + juce::MathConstants<float>::pi * 1.3f,
+                       true);
+            g.setColour(juce::Colour(Theme::colAccent).withAlpha(0.85f));
+            g.strokePath(arc, juce::PathStrokeType(2.0f,
+                              juce::PathStrokeType::curved,
+                              juce::PathStrokeType::rounded));
+        }
 
         g.setColour(juce::Colour(Theme::colTextDim));
         g.setFont(11.0f);
@@ -150,8 +208,10 @@ void ClipComponent::paint(juce::Graphics& g)
     }
 
     // Border
-    g.setColour(selected ? juce::Colour(0xFF3B82F6) : juce::Colour(0x66FFFFFF));
-    g.drawRoundedRectangle(r, 8.0f, selected ? 2.0f : 1.0f);
+    g.setColour(dragPreview ? juce::Colour(Theme::colAccent)
+                             : (selected ? juce::Colour(0xFF3B82F6)
+                                         : juce::Colour(0x66FFFFFF)));
+    g.drawRoundedRectangle(r, 8.0f, (selected || dragPreview) ? 2.0f : 1.0f);
 }
 
 void ClipComponent::mouseMove(const juce::MouseEvent& e)
@@ -162,6 +222,15 @@ void ClipComponent::mouseMove(const juce::MouseEvent& e)
 
 void ClipComponent::timerCallback()
 {
+    if (!model.showImportSpinner
+        || juce::Time::getMillisecondCounter() >= spinnerVisibleUntilMs)
+    {
+        model.showImportSpinner = false;
+        stopTimer();
+        repaint();
+        return;
+    }
+
     spinnerAngle += 0.18f;
     if (spinnerAngle > juce::MathConstants<float>::twoPi)
         spinnerAngle -= juce::MathConstants<float>::twoPi;
@@ -172,7 +241,6 @@ void ClipComponent::changeListenerCallback(juce::ChangeBroadcaster*)
 {
     if (thumb.isFullyLoaded())
     {
-        stopTimer();
         if (model.file.existsAsFile() && !savedOnce)
         {
             ThumbPersistence::save(thumb, model.file);

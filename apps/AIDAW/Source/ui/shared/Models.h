@@ -23,6 +23,7 @@ struct ClipModel {
     juce::File file;
     uint32 loopId { 0 };
     juce::String label;
+    bool showImportSpinner { false }; // transient UI state, not serialized
 };
 
 struct TrackModel {

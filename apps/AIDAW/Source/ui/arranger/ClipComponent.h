@@ -22,6 +22,7 @@ public:
     // Selection & tool state
     void setActiveTool(ArrangerTool t);
     void setSelected(bool on);
+    void setDragPreview(bool on);
 
     // Resize handles
     juce::Rectangle<int> leftHandle()  const;
@@ -46,8 +47,10 @@ private:
     juce::AudioThumbnail     thumb;
 
     bool          selected { false };
+    bool          dragPreview { false };
     ArrangerTool  activeTool { ArrangerTool::Pointer };
     juce::Point<int> lastMousePos { 0, 0 };
     bool          savedOnce { false };
     float         spinnerAngle { 0.0f };
+    juce::uint32  spinnerVisibleUntilMs { 0 };
 };

@@ -7,6 +7,7 @@
 #include "../shared/Icons.h"
 #include "ClipComponent.h"
 #include "TrackLaneComponent.h"
+#include "ArrangerHeaderStrip.h"
 #include "ArrangerCanvas.h"
 
 class Arranger  : public juce::Component,
@@ -72,9 +73,22 @@ private:
         void paint(juce::Graphics& g) override { g.fillAll(juce::Colour(0xFF0A0A0A)); }
     } content;
 
-    juce::Viewport  view;
-    ArrangerCanvas  canvas;                // overlay grid/ruler/playhead/selection (on top)
-    juce::TextButton plusButton { "+" };   // add-track button (sibling to lanes)
+    // Viewport that fires a callback whenever its visible region changes,
+    // so the pinned header strip can scroll vertically in lockstep.
+    class ArrangerViewport : public juce::Viewport
+    {
+    public:
+        std::function<void(const juce::Rectangle<int>&)> onVisibleAreaChanged;
+        void visibleAreaChanged(const juce::Rectangle<int>& r) override
+        {
+            juce::Viewport::visibleAreaChanged(r);
+            if (onVisibleAreaChanged) onVisibleAreaChanged(r);
+        }
+    };
+
+    ArrangerViewport view;
+    ArrangerCanvas   canvas;                // overlay grid/ruler/playhead/selection (on top)
+    HeaderStrip      headerStrip;           // pinned track-header panel (always visible)
 
     // tools (icon buttons)
     IconButton btnPointer  { "Pointer (1)",         Icons::pointer(),   IconButton::Style::Filled };
@@ -105,9 +119,12 @@ private:
     // playhead
     double playheadBeats { 0.0 };
 
+    // FL-style vertical zoom for playlist tracks
+    int laneHeightPx { 76 };
+
     // audio utils
     juce::AudioFormatManager fm;
-    juce::AudioThumbnailCache cache { 128 };
+    juce::AudioThumbnailCache cache { 512 };
 
     // lanes/clips
     std::vector<std::unique_ptr<TrackLaneComponent>> laneComps;
@@ -137,6 +154,7 @@ private:
     bool playheadDragActive { false };
     bool dragAutoScrollActive { false };
     juce::Point<int> lastDragViewportPos { 0, 0 };
+    bool lastDragBypassSnap { false };
 
     // Zoom tool: marquee selection & view restore
     bool selectionActive { false };
@@ -156,12 +174,15 @@ private:
 
     // ---- layout helpers ----
     static constexpr int kDefaultTrackCount = 8;
+    static constexpr int kDefaultLaneHeight = 76;
+    static constexpr int kMinLaneHeight = 44;
+    static constexpr int kMaxLaneHeight = 140;
     static constexpr double kZoomBase = 1.12;   // smooth exponential zoom
     static constexpr double kMinZoom  = 0.05;   // legacy safety (unused when ppb clamped)
     static constexpr double kMaxZoom  = 24.0;   // legacy safety (unused when ppb clamped)
 
     int  laneTop()     const { return 20; }     // ruler height
-    int  laneHeight()  const { return 76; }     // single source of truth
+    int  laneHeight()  const { return laneHeightPx; }
     int  contentHeight() const
     {
         const int n = (int) tracks.size();
@@ -173,9 +194,10 @@ private:
 
     void ensureDefaultTracks(int n);
 
-    void layoutLanes();     // places lanes + plusButton, resizes content height (only height)
+    void layoutLanes();     // places lane components and resizes content height
     void layoutClips();
     void extendContentToMaxClip(); // computes content width (only width)
+    void clampViewPosition();
 
     // internals
     void pushUndo();
@@ -202,11 +224,16 @@ private:
     void zoomToSelectionAndCenter(const juce::Rectangle<int>& rectContent);
     void restorePreZoomView();
     void autoScrollDuringDrag();
-    void updateActiveClipDragAt(juce::Point<int> pos);
+    void updateActiveClipDragAt(juce::Point<int> pos, bool bypassSnap);
+    double snapBeat(double beat, bool bypassSnap = false) const;
+    double minimumClipLengthBeats(bool bypassSnap = false) const;
+    void applyVerticalZoom(double wheelDelta, int anchorYContent, int anchorYInView);
+    juce::Point<int> contentPointFromScreen(const juce::MouseEvent& e) const;
+    juce::Point<int> viewPointFromScreen(const juce::MouseEvent& e) const;
 
     // model helpers
     int  trackIndexForClip(ClipModel& cm);
-    void moveClipToLane(ClipModel* cm, int fromLane, int toLane);
+    ClipModel* moveClipToLane(ClipModel* cm, int fromLane, int toLane);
     void removeClip(ClipModel* clip);
     void addTrack(const juce::String& name = "Audio", bool push = true);
     void duplicateTrack(size_t idx);
