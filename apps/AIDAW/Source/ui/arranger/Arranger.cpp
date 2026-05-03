@@ -290,6 +290,11 @@ void Arranger::resized()
     auto r = getLocalBounds().reduced(8, 6);
 
     auto tools = r.removeFromTop(34);
+    // Breathing room between the toolbar and the timeline ruler, and again
+    // below the horizontal scrollbar — without the bottom gap the ruler
+    // and scrollbar read as a single dark band on first paint.
+    r.removeFromTop(6);
+    r.removeFromBottom(8);
     const int ib = 36;
     btnPointer .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
     btnSlice   .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
@@ -697,19 +702,25 @@ void Arranger::updateActiveClipDragAt(juce::Point<int> pos, bool bypassSnap)
         pendingMoveValid = true;
 
         const int laneH = laneHeight();
+        const int clipVisualHeight = laneH - 20;
 
-        // Target lane = whichever lane the mouse cursor is currently over.
-        // This makes vertical lane changes track the cursor naturally instead of
-        // requiring a full lane-height of movement before the clip jumps.
-        const int laneFromCursor = (int) std::floor(
-            (double)(pos.y - laneTop()) / (double) juce::jmax(1, laneH));
-        targetLaneIndex = juce::jlimit(0, (int)tracks.size(), laneFromCursor);
+        // Clip follows the mouse cursor 1:1 — no lane snapping during the
+        // drag. The clip stays exactly where the user is pointing it. The
+        // final lane snap happens on mouse release in mouseUp / refreshAll.
+        const int grabOffsetInClip = dragStartPos.y - (laneTop() + startLaneIndex * laneH + 10);
+        const int desiredClipTop   = pos.y - grabOffsetInClip;
 
-        const int previewLaneY = laneTop() + targetLaneIndex * laneH + 10;
+        // Target lane is wherever the clip's center is currently over,
+        // used by mouseUp to commit the move to the model.
+        const int desiredClipCenter = desiredClipTop + clipVisualHeight / 2;
+        const int laneFromCenter = (int) std::floor(
+            (double)(desiredClipCenter - laneTop()) / (double) juce::jmax(1, laneH));
+        targetLaneIndex = juce::jlimit(0, (int)tracks.size(), laneFromCenter);
+
         const int w = (int)std::round(cm.lengthBeats * pixelsPerBeat);
         const int x = canvas.xFromBeats(preview);
 
-        activeClip->setBounds(x, previewLaneY, juce::jmax(24, w), laneH - 20);
+        activeClip->setBounds(x, desiredClipTop, juce::jmax(24, w), clipVisualHeight);
         return;
     }
 
