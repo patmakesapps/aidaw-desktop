@@ -321,7 +321,7 @@ void EddieSynthPanel::styleButton (juce::Button& b)
 
 EddieSynthPanel::EddieSynthPanel()
 {
-    setOpaque (false);
+    setOpaque (true);
     ThemeManager::get().addChangeListener (this);
     knobLook = std::make_unique<EddieKnobLook>();
     faceplateImage = juce::ImageFileFormat::loadFrom (BinaryData::eddie_full_plugin_frame_png,
@@ -473,28 +473,22 @@ EddieSynthPanel::EddieSynthPanel()
     configureSlider (drive, driveLabel, "Drive", 0.0, 1.0, 0.01);
 
     // FX: Delay
-    delayPowerBtn.setButtonText ("DLY OFF");
-    delayPowerBtn.setClickingTogglesState (true);
-    styleButton (delayPowerBtn);
-    delaySyncBtn.setButtonText ("SYNC");
-    delaySyncBtn.setClickingTogglesState (true);
-    styleButton (delaySyncBtn);
     delayPingPongBtn.setButtonText ("PP");
     delayPingPongBtn.setClickingTogglesState (true);
     styleButton (delayPingPongBtn);
-    delayDivLabel.setText ("Div", juce::dontSendNotification);
+    delayDivLabel.setText ("Time", juce::dontSendNotification);
     delayDivLabel.setColour (juce::Label::textColourId, juce::Colour (vintageCream).withAlpha (0.86f));
     addAndMakeVisible (delayDivLabel);
     fillDivCombo (delayDivMenu);
     styleCombo (delayDivMenu);
-    configureSlider (delayMix,      delayMixLabel,    "Mix",   0.0, 1.0, 0.01);
+    configureSlider (delayMix,      delayMixLabel,    "Delay", 0.0, 1.0, 0.01);
     configureSlider (delayTime,     delayTimeLabel,   "Time",  20.0, 1500.0, 1.0);
     configureSlider (delayFeedback, delayFbLabel,     "Fdbk",  0.0, 0.92, 0.01);
     configureSlider (delayHiCut,    delayHiCutLabel,  "HiCut", 500.0, 18000.0, 1.0);
     delayHiCut.setSkewFactorFromMidPoint (3000.0);
 
     // FX: Chorus
-    configureSlider (chorusMix,   chorusMixLabel,   "Mix",   0.0, 1.0, 0.01);
+    configureSlider (chorusMix,   chorusMixLabel,   "Ch Mix", 0.0, 1.0, 0.01);
     configureSlider (chorusRate,  chorusRateLabel,  "Rate",  0.05, 6.0, 0.01);
     configureSlider (chorusDepth, chorusDepthLabel, "Depth", 0.0, 1.0, 0.01);
 
@@ -644,8 +638,8 @@ void EddieSynthPanel::applyTabVisibility()
     // FX tab: Drive + Delay + Chorus + Reverb
     for (auto* c : std::initializer_list<juce::Component*>
                     { &driveLabel, &drive,
-                      &delayPowerBtn, &delaySyncBtn, &delayDivLabel, &delayDivMenu, &delayPingPongBtn,
-                      &delayMixLabel, &delayMix, &delayTimeLabel, &delayTime,
+                      &delayDivLabel, &delayDivMenu, &delayPingPongBtn,
+                      &delayMixLabel, &delayMix,
                       &delayFbLabel, &delayFeedback, &delayHiCutLabel, &delayHiCut,
                       &chorusMixLabel, &chorusMix, &chorusRateLabel, &chorusRate,
                       &chorusDepthLabel, &chorusDepth,
@@ -653,6 +647,9 @@ void EddieSynthPanel::applyTabVisibility()
                       &reverbDampingLabel, &reverbDamping,
                       &fxHeader })
         setVis (*c, fx);
+
+    delayTimeLabel.setVisible (false);
+    delayTime.setVisible (false);
 }
 
 void EddieSynthPanel::setSettings (const EddieSynthSettings& s)
@@ -731,10 +728,8 @@ void EddieSynthPanel::updateSettingsFromSliders()
     currentSettings.delayMs = (float) delayTime.getValue();
     currentSettings.delayFeedback = (float) delayFeedback.getValue();
     currentSettings.delayHiCutHz = (float) delayHiCut.getValue();
-    currentSettings.delaySync = delaySyncBtn.getToggleState();
+    currentSettings.delaySync = true;
     currentSettings.delayPingPong = delayPingPongBtn.getToggleState();
-    delayPowerBtn.setToggleState (currentSettings.delayMix > 0.001f, juce::dontSendNotification);
-    delayPowerBtn.setButtonText (currentSettings.delayMix > 0.001f ? "DLY ON" : "DLY OFF");
 
     currentSettings.chorusMix = (float) chorusMix.getValue();
     currentSettings.chorusRateHz = (float) chorusRate.getValue();
@@ -759,6 +754,7 @@ void EddieSynthPanel::updateSettingsFromCombos()
     currentSettings.lfoDest = lfoDestFromId (lfoDestMenu.getSelectedId());
     currentSettings.lfoSyncDiv = divFromId (lfoDivMenu.getSelectedId());
     currentSettings.delayDiv = divFromId (delayDivMenu.getSelectedId());
+    currentSettings.delaySync = true;
 
     if (onSettingsChanged)
         onSettingsChanged (currentSettings);
@@ -822,15 +818,12 @@ void EddieSynthPanel::updateSlidersFromSettings()
 
     setS (drive, currentSettings.drive);
 
-    delaySyncBtn.setToggleState (currentSettings.delaySync, juce::dontSendNotification);
-    delayPowerBtn.setToggleState (currentSettings.delayMix > 0.001f, juce::dontSendNotification);
-    delayPowerBtn.setButtonText (currentSettings.delayMix > 0.001f ? "DLY ON" : "DLY OFF");
-    delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "MS");
+    currentSettings.delaySync = true;
     delayPingPongBtn.setToggleState (currentSettings.delayPingPong, juce::dontSendNotification);
     delayPingPongBtn.setButtonText (currentSettings.delayPingPong ? "PP" : "ST");
     delayDivMenu.setSelectedId (divToId (currentSettings.delayDiv), juce::dontSendNotification);
-    delayTime.setEnabled (! currentSettings.delaySync);
-    delayDivMenu.setEnabled (currentSettings.delaySync);
+    delayTime.setEnabled (false);
+    delayDivMenu.setEnabled (true);
     setS (delayMix, currentSettings.delayMix);
     setS (delayTime, currentSettings.delayMs);
     setS (delayFeedback, currentSettings.delayFeedback);
@@ -1048,25 +1041,6 @@ void EddieSynthPanel::buttonClicked (juce::Button* button)
         if (onSettingsChanged) onSettingsChanged (currentSettings);
         return;
     }
-    if (button == &delayPowerBtn)
-    {
-        if (delayPowerBtn.getToggleState())
-            delayMix.setValue (juce::jmax (0.24, delayMix.getValue()), juce::sendNotificationSync);
-        else
-            delayMix.setValue (0.0, juce::sendNotificationSync);
-
-        delayPowerBtn.setButtonText (delayMix.getValue() > 0.001 ? "DLY ON" : "DLY OFF");
-        return;
-    }
-    if (button == &delaySyncBtn)
-    {
-        currentSettings.delaySync = delaySyncBtn.getToggleState();
-        delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "MS");
-        delayTime.setEnabled (! currentSettings.delaySync);
-        delayDivMenu.setEnabled (currentSettings.delaySync);
-        if (onSettingsChanged) onSettingsChanged (currentSettings);
-        return;
-    }
     if (button == &delayPingPongBtn)
     {
         currentSettings.delayPingPong = delayPingPongBtn.getToggleState();
@@ -1097,10 +1071,40 @@ void EddieSynthPanel::comboBoxChanged (juce::ComboBox* cb)
     updateSettingsFromCombos();
 }
 
+void EddieSynthPanel::mouseDown (const juce::MouseEvent& event)
+{
+    if (auto* parent = getParentComponent())
+        dragStartInParent = event.getEventRelativeTo (parent).getPosition();
+    else
+        dragStartInParent = event.getScreenPosition();
+
+    dragStartTopLeft = getPosition();
+    toFront (false);
+}
+
+void EddieSynthPanel::mouseDrag (const juce::MouseEvent& event)
+{
+    auto* parent = getParentComponent();
+    const auto current = parent != nullptr
+        ? event.getEventRelativeTo (parent).getPosition()
+        : event.getScreenPosition();
+    const auto delta = current - dragStartInParent;
+    auto target = dragStartTopLeft + delta;
+
+    if (parent != nullptr)
+    {
+        const int maxX = juce::jmax (0, parent->getWidth() - getWidth());
+        const int maxY = juce::jmax (0, parent->getHeight() - getHeight());
+        target.x = juce::jlimit (0, maxX, target.x);
+        target.y = juce::jlimit (0, maxY, target.y);
+    }
+
+    setTopLeftPosition (target);
+}
+
 void EddieSynthPanel::paint (juce::Graphics& g)
 {
-    g.setColour (juce::Colours::black.withAlpha (0.55f));
-    g.fillRect (getLocalBounds());
+    g.fillAll (juce::Colours::black);
 
     auto outer = getLocalBounds().reduced (16);
     auto kbStrip = outer.removeFromBottom (96);
@@ -1113,6 +1117,28 @@ void EddieSynthPanel::paint (juce::Graphics& g)
                            outer.getX(), outer.getY(),
                            outer.getWidth(), outer.getHeight(),
                            juce::RectanglePlacement::stretchToFit, false);
+
+        const int W = outer.getWidth();
+        const int H = outer.getHeight();
+        auto panelRect = [&] (float fx, float fy, float fw, float fh)
+        {
+            return juce::Rectangle<float> ((float) outer.getX() + (float) W * fx,
+                                           (float) outer.getY() + (float) H * fy,
+                                           (float) W * fw,
+                                           (float) H * fh);
+        };
+
+        auto fillControlPanel = [&] (juce::Rectangle<float> r)
+        {
+            g.setColour (juce::Colour (0xF50A0907));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (juce::Colour (vintageCream).withAlpha (0.18f));
+            g.drawRoundedRectangle (r.reduced (0.5f), 8.0f, 1.0f);
+        };
+
+        fillControlPanel (panelRect (0.045f, 0.32f, 0.450f, 0.28f));
+        fillControlPanel (panelRect (0.505f, 0.32f, 0.450f, 0.28f));
+        fillControlPanel (panelRect (0.045f, 0.62f, 0.910f, 0.34f));
     }
     else
     {
@@ -1345,21 +1371,18 @@ void EddieSynthPanel::resized()
     {
         sectionHeader (fxHeader, content.removeFromTop (16).withTrimmedLeft (4));
         auto top = content.removeFromTop (24);
-        // Toggle row for delay power, sync/PP, and division selector.
-        delayPowerBtn.setBounds (top.removeFromLeft (74).reduced (2));
-        top.removeFromLeft (6);
-        delaySyncBtn.setBounds (top.removeFromLeft (60).reduced (2));
-        delayDivLabel.setBounds (top.removeFromLeft (28));
-        delayDivMenu.setBounds (top.removeFromLeft (90).reduced (2));
+        top.removeFromLeft (74);
+        delayDivLabel.setBounds (top.removeFromLeft (42));
+        delayDivMenu.setBounds (top.removeFromLeft (110).reduced (2));
+        top.removeFromLeft (8);
         delayPingPongBtn.setBounds (top.removeFromLeft (50).reduced (2));
 
         content = content.reduced (2, 4);
-        // 11 knobs across
-        const int n = 11;
+        // 10 knobs across. Delay amount is the delay on/off control: 0 is off.
+        const int n = 10;
         const int kwx = content.getWidth() / n;
         placeKnob (content.removeFromLeft (kwx), driveLabel,           drive);
         placeKnob (content.removeFromLeft (kwx), delayMixLabel,        delayMix);
-        placeKnob (content.removeFromLeft (kwx), delayTimeLabel,       delayTime);
         placeKnob (content.removeFromLeft (kwx), delayFbLabel,         delayFeedback);
         placeKnob (content.removeFromLeft (kwx), delayHiCutLabel,      delayHiCut);
         placeKnob (content.removeFromLeft (kwx), chorusMixLabel,       chorusMix);

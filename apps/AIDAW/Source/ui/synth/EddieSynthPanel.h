@@ -26,6 +26,8 @@ public:
 
     void paint (juce::Graphics& g) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent& event) override;
+    void mouseDrag (const juce::MouseEvent& event) override;
 
 private:
     class MiniPreviewKeyboard : public juce::Component
@@ -77,6 +79,8 @@ private:
     void applyTabVisibility();
 
     Tab activeTab { Tab::Osc };
+    juce::Point<int> dragStartInParent;
+    juce::Point<int> dragStartTopLeft;
 
     juce::TextButton tabOsc, tabFilter, tabMod, tabFx;
 
@@ -137,7 +141,7 @@ private:
     juce::Label delayMixLabel, delayTimeLabel, delayDivLabel, delayFbLabel, delayHiCutLabel;
     juce::Slider delayMix, delayTime, delayFeedback, delayHiCut;
     juce::ComboBox delayDivMenu;
-    juce::TextButton delayPowerBtn, delaySyncBtn, delayPingPongBtn;
+    juce::TextButton delayPingPongBtn;
 
     // FX: Chorus
     juce::Label chorusMixLabel, chorusRateLabel, chorusDepthLabel;
