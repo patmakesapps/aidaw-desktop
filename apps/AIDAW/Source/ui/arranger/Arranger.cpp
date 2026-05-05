@@ -38,7 +38,7 @@ public:
         addAndMakeVisible(apply);
         addAndMakeVisible(cancel);
 
-        setSize(520, 430);
+        setSize(520, 450);
     }
 
     int modeId() const { return mode.getSelectedId(); }
@@ -54,16 +54,16 @@ public:
         g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 8.0f, 1.0f);
 
         g.setColour(juce::Colour(Theme::colText));
-        g.setFont(juce::Font(24.0f).boldened());
+        g.setFont(juce::Font(20.0f).boldened());
         g.drawText("Audio clip settings", 24, 18, getWidth() - 48, 34, juce::Justification::centred);
     }
 
     void resized() override
     {
         auto r = getLocalBounds().reduced(28);
-        r.removeFromTop(52);
+        r.removeFromTop(48);
         name.setBounds(r.removeFromTop(32));
-        r.removeFromTop(16);
+        r.removeFromTop(12);
 
         layoutField(r, modeLabel, mode);
         layoutField(r, pitchLabel, pitch);
@@ -71,7 +71,7 @@ public:
         layoutField(r, lengthLabel, length);
         layoutField(r, gainLabel, gain);
 
-        r.removeFromTop(12);
+        r.removeFromTop(6);
         auto buttons = r.removeFromTop(42);
         const int bw = 118;
         const int gap = 14;
@@ -99,9 +99,9 @@ private:
 
     static void layoutField(juce::Rectangle<int>& r, juce::Label& label, juce::Component& field)
     {
-        label.setBounds(r.removeFromTop(20));
-        field.setBounds(r.removeFromTop(34));
-        r.removeFromTop(10);
+        label.setBounds(r.removeFromTop(19));
+        field.setBounds(r.removeFromTop(31));
+        r.removeFromTop(7);
     }
 
     void buttonClicked(juce::Button* b) override
@@ -1335,6 +1335,16 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
 
     if (auto* cc = dynamic_cast<ClipComponent*>(e.eventComponent))
     {
+        if (cc->model.kind == ClipModel::Kind::Audio
+            && cc->menuHandle().contains(e.getEventRelativeTo(cc).getPosition()))
+        {
+            selectedClip = &cc->model;
+            updateClipSelectionVisuals();
+            setSelectedLane(trackIndexForClip(cc->model));
+            showClipContextMenu(*cc);
+            return;
+        }
+
         if (cc->model.kind == ClipModel::Kind::MidiLoop && e.getNumberOfClicks() >= 2)
         {
             if (onOpenMidiLoop)
@@ -1816,11 +1826,11 @@ void Arranger::showClipContextMenu(ClipComponent& cc)
                 case 2: fitAudioClipToProjectTempo(*clip); break;
                 case 3:
                     clip->pitchSemitones = juce::jlimit(-24.0, 24.0, clip->pitchSemitones + 1.0);
-                    clip->stretchMode = ClipModel::StretchMode::Resample;
+                    clip->stretchMode = ClipModel::StretchMode::Stretch;
                     break;
                 case 4:
                     clip->pitchSemitones = juce::jlimit(-24.0, 24.0, clip->pitchSemitones - 1.0);
-                    clip->stretchMode = ClipModel::StretchMode::Resample;
+                    clip->stretchMode = ClipModel::StretchMode::Stretch;
                     break;
                 case 5: clip->normalize = !clip->normalize; break;
                 case 6: clip->muted = !clip->muted; break;
@@ -1857,7 +1867,7 @@ void Arranger::showClipContextMenu(ClipComponent& cc)
                         }), false);
                     return;
                 }
-                case 10: clip->stretchMode = ClipModel::StretchMode::Stretch; clip->pitchSemitones = 0.0; break;
+                case 10: clip->stretchMode = ClipModel::StretchMode::Stretch; break;
                 case 11: clip->stretchMode = ClipModel::StretchMode::Resample; break;
                 default: break;
             }
@@ -1892,8 +1902,6 @@ void Arranger::showAudioClipSettings(ClipModel& clip)
                               : ClipModel::StretchMode::Stretch;
 
             clip->pitchSemitones = juce::jlimit(-24.0, 24.0, settings.pitchValue());
-            if (clip->stretchMode == ClipModel::StretchMode::Stretch)
-                clip->pitchSemitones = 0.0;
 
             clip->sourceBpm = juce::jlimit(20.0, 300.0, settings.sourceBpmValue());
             clip->lengthBeats = juce::jmax(1.0 / 16.0, settings.lengthValue());

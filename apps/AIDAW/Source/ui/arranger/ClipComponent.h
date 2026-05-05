@@ -27,6 +27,7 @@ public:
     // Resize handles
     juce::Rectangle<int> leftHandle()  const;
     juce::Rectangle<int> rightHandle() const;
+    juce::Rectangle<int> menuHandle() const;
 
     // JUCE overrides
     void paint(juce::Graphics& g) override;

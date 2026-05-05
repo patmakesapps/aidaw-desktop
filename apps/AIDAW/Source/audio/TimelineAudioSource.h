@@ -26,7 +26,18 @@ public:
     void getNextAudioBlock (const juce::AudioSourceChannelInfo& info) override;
 
 private:
+    struct PitchShiftState
+    {
+        juce::AudioBuffer<float> delay;
+        int writePos { 0 };
+        double phase { 0.0 };
+    };
+
     void buildReaders();
+    void processPitchShift (juce::AudioBuffer<float>& buffer,
+                            int numSamples,
+                            double semitones,
+                            PitchShiftState& state);
 
     std::vector<TrackModel>& tracks;
     double& bpmRef;
@@ -43,6 +54,7 @@ private:
     std::vector<std::unique_ptr<juce::ResamplingAudioSource>> resamplers;
     std::vector<double> resampleRatios;
     std::vector<float> clipGains;
+    std::vector<PitchShiftState> pitchStates;
     std::vector<ClipModel*> clipModels;
 
     juce::AudioBuffer<float> scratch;

@@ -70,6 +70,13 @@ juce::Rectangle<int> ClipComponent::rightHandle() const
     return getLocalBounds().withX(getWidth() - 6).withWidth(6);
 }
 
+juce::Rectangle<int> ClipComponent::menuHandle() const
+{
+    return getLocalBounds().withSizeKeepingCentre(22, 22)
+                           .withX(getWidth() - 28)
+                           .withY(getHeight() - 28);
+}
+
 void ClipComponent::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
@@ -181,24 +188,36 @@ void ClipComponent::paint(juce::Graphics& g)
                          : model.file.getFileNameWithoutExtension();
         g.setColour(juce::Colours::white.withAlpha(0.92f));
         g.setFont(juce::Font(12.0f).boldened());
-        g.drawText(title, getLocalBounds().reduced(10, 6),
+        g.drawText(title, getLocalBounds().reduced(10, 6).withTrimmedRight(30),
                    juce::Justification::topLeft, true);
 
-        juce::String badges;
-        badges << (model.stretchMode == ClipModel::StretchMode::Stretch ? "Stretch" : "Resample");
+        juce::String status;
         if (std::abs(model.pitchSemitones) > 0.01)
-            badges << "  " << (model.pitchSemitones > 0.0 ? "+" : "") << juce::String(model.pitchSemitones, 1) << " st";
+            status << (model.pitchSemitones > 0.0 ? "+" : "") << juce::String(model.pitchSemitones, 1) << " st";
         if (model.normalize)
-            badges << "  Norm";
+            status << (status.isNotEmpty() ? "  " : "") << "Norm";
         if (model.muted)
-            badges << "  Muted";
+            status << (status.isNotEmpty() ? "  " : "") << "Muted";
 
-        g.setColour(juce::Colours::black.withAlpha(0.38f));
-        auto badgeRect = getLocalBounds().reduced(8, 6).withTrimmedTop(18).withHeight(18);
-        g.fillRoundedRectangle(badgeRect.toFloat(), 4.0f);
+        if (status.isNotEmpty())
+        {
+            g.setColour(juce::Colours::black.withAlpha(0.30f));
+            auto badgeRect = getLocalBounds().reduced(8, 6).withTrimmedTop(18).withHeight(18).withTrimmedRight(30);
+            g.fillRoundedRectangle(badgeRect.toFloat(), 4.0f);
+            g.setColour(juce::Colours::white.withAlpha(0.78f));
+            g.setFont(10.0f);
+            g.drawText(status, badgeRect.reduced(6, 0), juce::Justification::centredLeft, true);
+        }
+
+        auto menu = menuHandle().toFloat();
+        g.setColour(juce::Colour(Theme::colBgPanel).withAlpha(0.78f));
+        g.fillRoundedRectangle(menu, 5.0f);
+        g.setColour(juce::Colour(Theme::colBtnStroke));
+        g.drawRoundedRectangle(menu, 5.0f, 1.0f);
         g.setColour(juce::Colours::white.withAlpha(0.78f));
-        g.setFont(10.0f);
-        g.drawText(badges, badgeRect.reduced(6, 0), juce::Justification::centredLeft, true);
+        const float cy = menu.getCentreY();
+        for (int i = 0; i < 3; ++i)
+            g.fillEllipse(menu.getX() + 6.0f + i * 5.0f, cy - 1.6f, 3.2f, 3.2f);
     }
     else if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
     {
@@ -287,6 +306,12 @@ void ClipComponent::updateCursorForPoint(juce::Point<int> p)
         setMouseCursor((leftHandle().contains(p) || rightHandle().contains(p))
                        ? MC::LeftRightResizeCursor
                        : MC::NormalCursor);
+        return;
+    }
+
+    if (model.kind == ClipModel::Kind::Audio && menuHandle().contains(p))
+    {
+        setMouseCursor(MC::PointingHandCursor);
         return;
     }
 

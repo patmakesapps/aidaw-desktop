@@ -152,6 +152,7 @@ void TopBar::setBPM (double bpm)
 {
     currentBPM = juce::jlimit(40.0, 300.0, bpm);
     bpmEdit.setText(juce::String(currentBPM, 2), juce::dontSendNotification);
+    bpmEdit.moveCaretToEnd();
     if (onTempoChanged) onTempoChanged(currentBPM);
 }
 
@@ -383,5 +384,6 @@ void TopBar::applyBpmFrom (juce::TextEditor& editor)
     val = juce::jlimit(40.0, 300.0, val);
     currentBPM = val;
     editor.setText(juce::String(val, 2), juce::dontSendNotification);
+    editor.moveCaretToEnd();
     if (onTempoChanged) onTempoChanged(val);
 }
