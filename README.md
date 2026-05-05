@@ -1,12 +1,32 @@
 # AIDAW
 
-AIDAW is a JUCE/CMake desktop music app prototype. It combines a composer timeline, MIDI loop editor, simple mixer view, metronome, audio-file clips, and an integrated synth named Eddie.
+AIDAW is a JUCE/CMake desktop music app prototype. It combines a composer timeline, MIDI loop editor, sample browser, metronome, audio-file clips, and an integrated synth named Eddie.
+
+![AIDAW hero screenshot](photos/repo_hero.png)
+
+## Screenshots
+
+### Composer and Audio Clips
+
+![Composer arranger view](photos/arranger_pic1.png)
+
+![Audio clips in the arranger](photos/arranger_pic2.png)
+
+![Audio clip controls](photos/arranger_pic3.png)
+
+### MIDI and Eddie Synth
+
+![MIDI editor](photos/midi_pic1.png)
+
+![Eddie synth plugin panel](photos/eddie_plugin_pic1.png)
 
 ## Current Features
 
-- Composer timeline with tracks, clip movement/resizing, snapping, zooming, and playhead control
-- Drag-and-drop audio clips into the arranger
-- Built-in sample browser for local/free sample packs, with click-to-preview and drag-to-arranger support
+- Composer timeline with tracks, clip movement/resizing, slicing, snapping, zooming, playhead control, and vertical lane zoom
+- Drag-and-drop audio clips into the arranger with waveform thumbnails and cached thumbnail loading
+- Audio clip controls inspired by FL Studio: stretch/resample mode, source BPM, timeline length, gain, normalize, mute, rename, delete, and pitch controls
+- Pitch-safe audio clip defaults: dragged samples use stretch mode by default so tempo changes and clip resizing do not automatically change pitch
+- Built-in sample browser for local/free sample packs, with themed filtering, click-to-preview, sample-rate-correct preview playback, and drag-to-arranger support
 - MIDI loop creation, editing, looping, and reuse in the composer
 - Eddie synth playback for MIDI loops, with waveform and sound controls
 - Project save/open support using `.aidaw` XML project files
@@ -25,6 +45,7 @@ The mixer screen is currently a placeholder.
 |       +-- app/         # Main window and top-level app component
 |       +-- audio/       # Metronome, timeline audio source, Eddie synth
 |       +-- ui/          # Arranger, MIDI editor, mixer, shell, shared UI
++-- photos/              # README screenshots
 +-- Samples/             # Local sample packs scanned by the sample browser
 +-- third_party/juce/    # JUCE submodule
 +-- CMakeLists.txt       # Root CMake project
