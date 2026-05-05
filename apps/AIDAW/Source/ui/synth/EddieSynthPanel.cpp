@@ -119,6 +119,19 @@ EddieLfoDest lfoDestFromId (int id)
     return EddieLfoDest::off;
 }
 
+int noiseTypeToId (EddieNoiseType n) { return (int) n + 1; }
+EddieNoiseType noiseTypeFromId (int id)
+{
+    switch (id)
+    {
+        case 1: return EddieNoiseType::white;
+        case 2: return EddieNoiseType::pink;
+        case 3: return EddieNoiseType::brown;
+        case 4: return EddieNoiseType::digital;
+    }
+    return EddieNoiseType::white;
+}
+
 int divToId (EddieSyncDiv d) { return (int) d + 1; }
 EddieSyncDiv divFromId (int id)
 {
@@ -368,9 +381,17 @@ EddieSynthPanel::EddieSynthPanel()
     osc1WaveMenu.addItem ("Sine", 1); osc1WaveMenu.addItem ("Saw", 2);
     osc1WaveMenu.addItem ("Square", 3); osc1WaveMenu.addItem ("Triangle", 4);
     styleCombo (osc1WaveMenu);
+    noiseTypeLabel.setText ("Noise", juce::dontSendNotification);
+    noiseTypeLabel.setColour (juce::Label::textColourId, juce::Colour (vintageCream).withAlpha (0.86f));
+    addAndMakeVisible (noiseTypeLabel);
+    noiseTypeMenu.addItem ("White", 1);
+    noiseTypeMenu.addItem ("Pink", 2);
+    noiseTypeMenu.addItem ("Brown", 3);
+    noiseTypeMenu.addItem ("Digital", 4);
+    styleCombo (noiseTypeMenu);
     configureSlider (saw,        sawLabel,        "PW",    0.05, 0.95, 0.01);
     configureSlider (sub,        subLabel,        "Sub",   0.0, 1.0, 0.01);
-    configureSlider (noise,      noiseLabel,      "Noise", 0.0, 1.0, 0.01);
+    configureSlider (noise,      noiseLabel,      "Noise Amt", 0.0, 1.0, 0.01);
     configureSlider (osc1Level,  osc1LevelLabel,  "Level", 0.0, 1.0, 0.01);
 
     // OSC2
@@ -452,6 +473,9 @@ EddieSynthPanel::EddieSynthPanel()
     configureSlider (drive, driveLabel, "Drive", 0.0, 1.0, 0.01);
 
     // FX: Delay
+    delayPowerBtn.setButtonText ("DLY OFF");
+    delayPowerBtn.setClickingTogglesState (true);
+    styleButton (delayPowerBtn);
     delaySyncBtn.setButtonText ("SYNC");
     delaySyncBtn.setClickingTogglesState (true);
     styleButton (delaySyncBtn);
@@ -584,7 +608,8 @@ void EddieSynthPanel::applyTabVisibility()
 
     // OSC tab: OSC1 + OSC2 + Sub + Noise + Unison
     for (auto* c : std::initializer_list<juce::Component*>
-                    { &osc1WaveLabel, &osc1WaveMenu, &sawLabel, &saw,
+                    { &osc1WaveLabel, &osc1WaveMenu, &noiseTypeLabel, &noiseTypeMenu,
+                      &sawLabel, &saw,
                       &subLabel, &sub, &noiseLabel, &noise,
                       &osc1LevelLabel, &osc1Level,
                       &osc2WaveLabel, &osc2WaveMenu, &osc2EnabledBtn,
@@ -619,7 +644,7 @@ void EddieSynthPanel::applyTabVisibility()
     // FX tab: Drive + Delay + Chorus + Reverb
     for (auto* c : std::initializer_list<juce::Component*>
                     { &driveLabel, &drive,
-                      &delaySyncBtn, &delayDivLabel, &delayDivMenu, &delayPingPongBtn,
+                      &delayPowerBtn, &delaySyncBtn, &delayDivLabel, &delayDivMenu, &delayPingPongBtn,
                       &delayMixLabel, &delayMix, &delayTimeLabel, &delayTime,
                       &delayFbLabel, &delayFeedback, &delayHiCutLabel, &delayHiCut,
                       &chorusMixLabel, &chorusMix, &chorusRateLabel, &chorusRate,
@@ -708,6 +733,8 @@ void EddieSynthPanel::updateSettingsFromSliders()
     currentSettings.delayHiCutHz = (float) delayHiCut.getValue();
     currentSettings.delaySync = delaySyncBtn.getToggleState();
     currentSettings.delayPingPong = delayPingPongBtn.getToggleState();
+    delayPowerBtn.setToggleState (currentSettings.delayMix > 0.001f, juce::dontSendNotification);
+    delayPowerBtn.setButtonText (currentSettings.delayMix > 0.001f ? "DLY ON" : "DLY OFF");
 
     currentSettings.chorusMix = (float) chorusMix.getValue();
     currentSettings.chorusRateHz = (float) chorusRate.getValue();
@@ -725,6 +752,7 @@ void EddieSynthPanel::updateSettingsFromCombos()
 {
     currentSettings.waveform = waveformFromId (osc1WaveMenu.getSelectedId());
     saw.setEnabled (currentSettings.waveform == EddieWaveform::square);
+    currentSettings.noiseType = noiseTypeFromId (noiseTypeMenu.getSelectedId());
     currentSettings.osc2Waveform = waveformFromId (osc2WaveMenu.getSelectedId());
     currentSettings.filterMode = filterModeFromId (filterModeMenu.getSelectedId());
     currentSettings.lfoShape = lfoShapeFromId (lfoShapeMenu.getSelectedId());
@@ -747,6 +775,7 @@ void EddieSynthPanel::updateSlidersFromSettings()
     polyphony.setEnabled (! currentSettings.mono);
 
     osc1WaveMenu.setSelectedId (waveformToId (currentSettings.waveform), juce::dontSendNotification);
+    noiseTypeMenu.setSelectedId (noiseTypeToId (currentSettings.noiseType), juce::dontSendNotification);
     setS (saw, currentSettings.sawMix);
     setS (sub, currentSettings.subMix);
     setS (noise, currentSettings.noiseLevel);
@@ -794,7 +823,9 @@ void EddieSynthPanel::updateSlidersFromSettings()
     setS (drive, currentSettings.drive);
 
     delaySyncBtn.setToggleState (currentSettings.delaySync, juce::dontSendNotification);
-    delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "FREE");
+    delayPowerBtn.setToggleState (currentSettings.delayMix > 0.001f, juce::dontSendNotification);
+    delayPowerBtn.setButtonText (currentSettings.delayMix > 0.001f ? "DLY ON" : "DLY OFF");
+    delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "MS");
     delayPingPongBtn.setToggleState (currentSettings.delayPingPong, juce::dontSendNotification);
     delayPingPongBtn.setButtonText (currentSettings.delayPingPong ? "PP" : "ST");
     delayDivMenu.setSelectedId (divToId (currentSettings.delayDiv), juce::dontSendNotification);
@@ -848,6 +879,7 @@ void EddieSynthPanel::loadPresets()
         s.subMix = (float) child->getDoubleAttribute ("sub", s.subMix);
         s.osc1Level = (float) child->getDoubleAttribute ("o1Lvl", s.osc1Level);
         s.noiseLevel = (float) child->getDoubleAttribute ("noise", s.noiseLevel);
+        s.noiseType = noiseTypeFromId (child->getIntAttribute ("noiseType", noiseTypeToId (s.noiseType)));
         s.osc2Enabled = child->getBoolAttribute ("o2On", s.osc2Enabled);
         s.osc2Waveform = waveformFromId (child->getIntAttribute ("o2Wav", waveformToId (s.osc2Waveform)));
         s.osc2Semis = child->getIntAttribute ("o2Semi", s.osc2Semis);
@@ -913,6 +945,7 @@ void EddieSynthPanel::savePresets() const
         item->setAttribute ("sub", s.subMix);
         item->setAttribute ("o1Lvl", s.osc1Level);
         item->setAttribute ("noise", s.noiseLevel);
+        item->setAttribute ("noiseType", noiseTypeToId (s.noiseType));
         item->setAttribute ("o2On", s.osc2Enabled);
         item->setAttribute ("o2Wav", waveformToId (s.osc2Waveform));
         item->setAttribute ("o2Semi", s.osc2Semis);
@@ -1015,10 +1048,20 @@ void EddieSynthPanel::buttonClicked (juce::Button* button)
         if (onSettingsChanged) onSettingsChanged (currentSettings);
         return;
     }
+    if (button == &delayPowerBtn)
+    {
+        if (delayPowerBtn.getToggleState())
+            delayMix.setValue (juce::jmax (0.24, delayMix.getValue()), juce::sendNotificationSync);
+        else
+            delayMix.setValue (0.0, juce::sendNotificationSync);
+
+        delayPowerBtn.setButtonText (delayMix.getValue() > 0.001 ? "DLY ON" : "DLY OFF");
+        return;
+    }
     if (button == &delaySyncBtn)
     {
         currentSettings.delaySync = delaySyncBtn.getToggleState();
-        delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "FREE");
+        delaySyncBtn.setButtonText (currentSettings.delaySync ? "SYNC" : "MS");
         delayTime.setEnabled (! currentSettings.delaySync);
         delayDivMenu.setEnabled (currentSettings.delaySync);
         if (onSettingsChanged) onSettingsChanged (currentSettings);
@@ -1203,8 +1246,10 @@ void EddieSynthPanel::resized()
         // OSC1
         sectionHeader (osc1Header, oscSec.removeFromTop (16).withTrimmedLeft (4));
         auto oscTop = oscSec.removeFromTop (24);
-        osc1WaveLabel.setBounds (oscTop.removeFromLeft (40));
-        osc1WaveMenu.setBounds (oscTop.reduced (2));
+        osc1WaveLabel.setBounds (oscTop.removeFromLeft (34));
+        osc1WaveMenu.setBounds (oscTop.removeFromLeft ((int) (oscSec.getWidth() * 0.34)).reduced (2));
+        noiseTypeLabel.setBounds (oscTop.removeFromLeft (44));
+        noiseTypeMenu.setBounds (oscTop.reduced (2));
         oscSec = oscSec.reduced (2, 4);
         const int kwO = oscSec.getWidth() / 4;
         placeKnob (oscSec.removeFromLeft (kwO), sawLabel,       saw);
@@ -1300,8 +1345,9 @@ void EddieSynthPanel::resized()
     {
         sectionHeader (fxHeader, content.removeFromTop (16).withTrimmedLeft (4));
         auto top = content.removeFromTop (24);
-        // Toggle row for delay sync/PP + div selector
-        top.removeFromLeft (60); // align under driveLabel
+        // Toggle row for delay power, sync/PP, and division selector.
+        delayPowerBtn.setBounds (top.removeFromLeft (74).reduced (2));
+        top.removeFromLeft (6);
         delaySyncBtn.setBounds (top.removeFromLeft (60).reduced (2));
         delayDivLabel.setBounds (top.removeFromLeft (28));
         delayDivMenu.setBounds (top.removeFromLeft (90).reduced (2));

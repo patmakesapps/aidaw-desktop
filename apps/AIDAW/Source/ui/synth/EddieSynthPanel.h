@@ -93,8 +93,8 @@ private:
                 ampEnvHeader, lfoHeader, fxHeader, masterHeader;
 
     // OSC1
-    juce::Label osc1WaveLabel;
-    juce::ComboBox osc1WaveMenu;
+    juce::Label osc1WaveLabel, noiseTypeLabel;
+    juce::ComboBox osc1WaveMenu, noiseTypeMenu;
     juce::Label sawLabel, subLabel, noiseLabel, osc1LevelLabel;
     juce::Slider saw, sub, noise, osc1Level;
 
@@ -137,7 +137,7 @@ private:
     juce::Label delayMixLabel, delayTimeLabel, delayDivLabel, delayFbLabel, delayHiCutLabel;
     juce::Slider delayMix, delayTime, delayFeedback, delayHiCut;
     juce::ComboBox delayDivMenu;
-    juce::TextButton delaySyncBtn, delayPingPongBtn;
+    juce::TextButton delayPowerBtn, delaySyncBtn, delayPingPongBtn;
 
     // FX: Chorus
     juce::Label chorusMixLabel, chorusRateLabel, chorusDepthLabel;

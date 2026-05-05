@@ -20,6 +20,70 @@ double msToSeconds (float ms)
     return juce::jmax (0.001, (double) ms * 0.001);
 }
 
+float whiteNoiseAt (int64 sampleIndex, int salt)
+{
+    uint32 x = (uint32) sampleIndex;
+    x ^= (uint32) (sampleIndex >> 32);
+    x += (uint32) salt * 0x9E3779B9u;
+    x ^= x >> 16;
+    x *= 0x7FEB352Du;
+    x ^= x >> 15;
+    x *= 0x846CA68Bu;
+    x ^= x >> 16;
+    return ((float) (x & 0x00FFFFFFu) / 8388607.5f) - 1.0f;
+}
+
+float heldNoiseAt (int64 sampleIndex, int periodSamples, int salt)
+{
+    periodSamples = juce::jmax (1, periodSamples);
+    return whiteNoiseAt (sampleIndex / periodSamples, salt);
+}
+
+float interpolatedHeldNoiseAt (int64 sampleIndex, int periodSamples, int salt)
+{
+    periodSamples = juce::jmax (1, periodSamples);
+    const int64 base = sampleIndex / periodSamples;
+    const float frac = (float) (sampleIndex % periodSamples) / (float) periodSamples;
+    const float smooth = frac * frac * (3.0f - 2.0f * frac);
+    return juce::jmap (smooth,
+                       whiteNoiseAt (base, salt),
+                       whiteNoiseAt (base + 1, salt));
+}
+
+float noiseSampleAt (EddieNoiseType type, int64 sampleIndex, int salt)
+{
+    switch (type)
+    {
+        case EddieNoiseType::white:
+            return whiteNoiseAt (sampleIndex, salt);
+
+        case EddieNoiseType::pink:
+        {
+            const float n = whiteNoiseAt (sampleIndex, salt)
+                          + heldNoiseAt (sampleIndex, 2,  salt + 11) * 0.72f
+                          + heldNoiseAt (sampleIndex, 4,  salt + 23) * 0.52f
+                          + heldNoiseAt (sampleIndex, 8,  salt + 37) * 0.36f
+                          + heldNoiseAt (sampleIndex, 16, salt + 51) * 0.24f;
+            return juce::jlimit (-1.0f, 1.0f, n / 2.35f);
+        }
+
+        case EddieNoiseType::brown:
+        {
+            const float n = interpolatedHeldNoiseAt (sampleIndex, 96, salt + 71) * 0.70f
+                          + interpolatedHeldNoiseAt (sampleIndex, 384, salt + 89) * 0.30f;
+            return juce::jlimit (-1.0f, 1.0f, n);
+        }
+
+        case EddieNoiseType::digital:
+        {
+            const float stepped = heldNoiseAt (sampleIndex, 12, salt + 107);
+            return std::round (stepped * 7.0f) / 7.0f;
+        }
+    }
+
+    return 0.0f;
+}
+
 void softLimitBuffer (const juce::AudioSourceChannelInfo& info)
 {
     if (info.buffer == nullptr)
@@ -208,8 +272,7 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
     const float o1Lev = juce::jlimit (0.0f, 1.0f, settings.osc1Level);
     const float o2Lev = settings.osc2Enabled ? juce::jlimit (0.0f, 1.0f, settings.osc2Level) : 0.0f;
     const float noise = juce::jlimit (0.0f, 1.0f, settings.noiseLevel);
-
-    auto& rng = juce::Random::getSystemRandom();
+    const int noiseSalt = note.pitch * 131 + (int) settings.noiseType * 7919;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -223,7 +286,9 @@ void EddieSynthVoiceRenderer::renderNote (const MidiNote& note,
             continue;
 
         // Noise & sub are mono — sum once per sample, then split equal-power into stereo.
-        const float noiseS = noise > 0.0f ? (rng.nextFloat() * 2.0f - 1.0f) * noise : 0.0f;
+        const float noiseS = noise > 0.0f
+            ? noiseSampleAt (settings.noiseType, (int64) absoluteSample, noiseSalt) * noise
+            : 0.0f;
         const double subPhase = secondsFromStart * freq1 * 0.5; // -1 octave
         const float subS = (float) std::sin ((subPhase - std::floor (subPhase)) * twoPi) * sub;
         const float monoExtras = noiseS + subS;

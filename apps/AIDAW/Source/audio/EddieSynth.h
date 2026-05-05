@@ -61,6 +61,14 @@ enum class EddieLfoDest
     pan
 };
 
+enum class EddieNoiseType
+{
+    white = 0,
+    pink,
+    brown,
+    digital
+};
+
 struct EddieSynthSettings
 {
     // Master
@@ -73,7 +81,8 @@ struct EddieSynthSettings
     float sawMix     { 0.5f };        // legacy name — now PULSE WIDTH for square (0.05..0.95)
     float subMix     { 0.30f };       // sub osc (1 octave below, sine)
     float osc1Level  { 1.0f };
-    float noiseLevel { 0.0f };        // white noise mixed into OSC1 path
+    float noiseLevel { 0.0f };        // noise mixed into OSC1 path
+    EddieNoiseType noiseType { EddieNoiseType::white };
 
     // OSC2 (new)
     bool  osc2Enabled { false };
