@@ -41,7 +41,6 @@ private:
     private:
         int noteForPosition (juce::Point<int> position) const;
         void triggerAt (juce::Point<int> position, bool forceRetrigger);
-
         int activeNote { -1 };
     };
 
@@ -58,8 +57,11 @@ private:
                           double max,
                           double interval);
 
+    void styleCombo (juce::ComboBox& combo);
+    void styleButton (juce::Button& b);
+
     void updateSettingsFromSliders();
-    void updateSettingsFromWaveform();
+    void updateSettingsFromCombos();
     void updateSlidersFromSettings();
     void loadPresets();
     void savePresets() const;
@@ -70,25 +72,86 @@ private:
     void buttonClicked (juce::Button* button) override;
     void comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged) override;
 
+    enum class Tab { Osc, Filter, Mod, Fx };
+    void setActiveTab (Tab t);
+    void applyTabVisibility();
+
+    Tab activeTab { Tab::Osc };
+
+    juce::TextButton tabOsc, tabFilter, tabMod, tabFx;
+
     EddieSynthSettings currentSettings;
     std::vector<Preset> presets;
 
-    juce::Label title;
-    juce::Label subtitle;
+    juce::Label title, subtitle;
     juce::ComboBox presetMenu;
-    juce::Label waveformLabel;
-    juce::ComboBox waveformMenu;
     juce::TextEditor presetName;
     juce::TextButton savePreset, closeButton, monoToggle;
-    MiniPreviewKeyboard previewKeyboard;
 
-    juce::Label gainLabel, sawLabel, subLabel, attackLabel, decayLabel, sustainLabel, releaseLabel;
-    juce::Label voicesLabel;
-    juce::Label driveLabel, delayMixLabel, delayTimeLabel, delayFeedbackLabel;
+    // Section labels
+    juce::Label osc1Header, osc2Header, unisonHeader, filterHeader, fEnvHeader,
+                ampEnvHeader, lfoHeader, fxHeader, masterHeader;
+
+    // OSC1
+    juce::Label osc1WaveLabel;
+    juce::ComboBox osc1WaveMenu;
+    juce::Label sawLabel, subLabel, noiseLabel, osc1LevelLabel;
+    juce::Slider saw, sub, noise, osc1Level;
+
+    // OSC2
+    juce::Label osc2WaveLabel;
+    juce::ComboBox osc2WaveMenu;
+    juce::TextButton osc2EnabledBtn;
+    juce::Label osc2SemisLabel, osc2CentsLabel, osc2LevelLabel;
+    juce::Slider osc2Semis, osc2Cents, osc2Level;
+
+    // Unison
+    juce::Label unisonVoicesLabel, unisonDetuneLabel, unisonSpreadLabel;
+    juce::Slider unisonVoices, unisonDetune, unisonSpread;
+
+    // Filter
+    juce::Label filterModeLabel;
+    juce::ComboBox filterModeMenu;
+    juce::Label cutoffLabel, resoLabel, fDriveLabel, kTrkLabel;
+    juce::Slider cutoff, reso, fDrive, kTrk;
+
+    // Filter env
+    juce::Label fAttackLabel, fDecayLabel, fSustainLabel, fReleaseLabel, fAmountLabel;
+    juce::Slider fAttack, fDecay, fSustain, fRelease, fAmount;
+
+    // Amp env
+    juce::Label attackLabel, decayLabel, sustainLabel, releaseLabel;
+    juce::Slider attack, decay, sustain, release;
+
+    // LFO
+    juce::Label lfoShapeLabel, lfoDestLabel, lfoRateLabel, lfoDepthLabel, lfoDivLabel;
+    juce::ComboBox lfoShapeMenu, lfoDestMenu, lfoDivMenu;
+    juce::TextButton lfoSyncBtn;
+    juce::Slider lfoRate, lfoDepth;
+
+    // FX: Drive
+    juce::Label driveLabel;
+    juce::Slider drive;
+
+    // FX: Delay
+    juce::Label delayMixLabel, delayTimeLabel, delayDivLabel, delayFbLabel, delayHiCutLabel;
+    juce::Slider delayMix, delayTime, delayFeedback, delayHiCut;
+    juce::ComboBox delayDivMenu;
+    juce::TextButton delaySyncBtn, delayPingPongBtn;
+
+    // FX: Chorus
+    juce::Label chorusMixLabel, chorusRateLabel, chorusDepthLabel;
+    juce::Slider chorusMix, chorusRate, chorusDepth;
+
+    // FX: Reverb
     juce::Label reverbMixLabel, reverbSizeLabel, reverbDampingLabel;
-    juce::Slider gain, saw, sub, attack, decay, sustain, release;
-    juce::Slider voices;
-    juce::Slider drive, delayMix, delayTime, delayFeedback, reverbMix, reverbSize, reverbDamping;
+    juce::Slider reverbMix, reverbSize, reverbDamping;
+
+    // Master
+    juce::Label gainLabel, polyLabel;
+    juce::Slider gain, polyphony;
+
+    MiniPreviewKeyboard previewKeyboard;
 
     juce::Image faceplateImage;
     std::unique_ptr<juce::LookAndFeel_V4> knobLook;

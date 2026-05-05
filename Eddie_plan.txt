@@ -1,0 +1,120 @@
+EDDIE OVERHAUL — PROGRESS LOG
+==============================
+
+PHASE A (this session) — Eddie engine + UI overhaul
+---------------------------------------------------
+
+[x] 1. Louder default volume + extended gain range
+       - default outputGain: 0.18 -> 0.45
+       - Gain slider max: 0.60 -> 1.00
+
+[x] 2. Tempo-synced delay with note divisions
+       - New EddieSyncDiv enum: 1/32, 1/16T, 1/16, 1/16D, 1/8T, 1/8, 1/8D,
+         1/4T, 1/4, 1/4D, 1/2, 1/1
+       - SYNC/FREE toggle button on panel
+       - Division dropdown when synced, free-ms knob when in free mode
+       - PingPong (PP) toggle for stereo cross-feed
+       - HiCut (one-pole) on feedback path so repeats darken naturally
+
+[x] 3. True unison voices (per-note detuned stack, Serum-style)
+       - Up to 7 detuned oscillator copies per note
+       - Detune in cents (0-50) + stereo Spread (0-1, equal-power pan)
+       - Independent of polyphony cap — voices live INSIDE each note
+
+[x] 4. OSC2 with semi/cent detune + mix
+       - Independent waveform, semis (-24..+24), cents (-100..+100), level
+       - On/Off toggle (so OSC2 doesn't waste CPU when not needed)
+
+[x] 5. State-variable filter + filter envelope
+       - TPT-topology SVF: LP / BP / HP, with Off bypass
+       - Cutoff (skewed log), Resonance, Drive (tanh pre-gain), Key-Track
+       - Separate ADSR for filter envelope, bipolar Amount knob
+         (positive = sweep up, negative = sweep down) up to 5 octaves
+       - Envelope retriggered per note-on detected at block boundaries
+
+[x] 6. Modulation LFO with destination
+       - Shapes: Sine / Triangle / Saw / Square / Sample-and-Hold
+       - SYNC/FREE toggle (free Hz knob 0.05-20 Hz, or synced division)
+       - Destinations: Off / Filter Cutoff / Filter Reso / Amp / Pan
+       - Depth knob (0-1)
+
+[x] 7. Chorus FX
+       - juce::dsp::Chorus with Mix / Rate / Depth knobs
+       - Sits between filter and delay in the FX chain
+
+[x] 8. Eddie panel: redesigned layout
+       - Three-row grid layout over a low-opacity faceplate texture:
+         Row 1: OSC1 | OSC2 | UNISON
+         Row 2: FILTER | FILTER ENV | AMP ENV
+         Row 3: LFO | FX (drive/delay/chorus/reverb) | MASTER (gain/poly)
+       - Section headers in vintage amber, knobs use existing EddieKnobLook
+       - Preview keyboard expanded to ~3 octaves at the bottom
+
+[x] 9. Preset format migration + new factory presets
+       - XML schema extended with new fields, all attributes have safe
+         defaults so old presets keep working
+       - New factory presets shipped:
+         * Eddie Init    (clean default)
+         * Soft Keys     (mellow tri pad, gentle reverb)
+         * Sub Bass      (mono square + filter env, drive)
+         * Supersaw      (7-voice unison + OSC2 detune + sync delay)
+         * Tempo Pluck   (1/4D ping-pong delay, percussive env)
+         * LFO Sweep Pad (1/2 LFO -> cutoff for evolving pad)
+
+[x] 10. Build verified — cmake --build Debug compiles cleanly,
+        no warnings related to Eddie changes.
+
+[x] 10b. Cleanup pass (post-feedback)
+       - Restored faceplate to FULL opacity — vintage Eddie art is the
+         visual identity again, not buried.
+       - Tabbed control deck: OSC | FILTER | MOD | FX
+         * Tab buttons live in the top-right faceplate inset.
+         * Active tab fills the bottom big inset of the faceplate.
+       - Top-left inset = preset utilities (preset menu, save, name, mono).
+       - Top-right inset = Master (Gain + Poly) above the tab buttons.
+       - Preview keyboard moved BELOW the faceplate so the wood frame is
+         not crowded.
+       - Close button is a small overlay in the wood frame's top-right
+         corner — does not obscure the logo art.
+
+[x] 10c. Waveform accuracy + sub/noise
+       - Removed the silent "Shape" sine-blend hijack — picking SAW now
+         gives PURE saw, SQUARE gives pure square, etc.
+       - Triangle generator rewritten to a true symmetric ramp.
+       - "Shape" knob repurposed as PW (pulse width) — only active when
+         OSC1 wave is Square; greyed out otherwise.
+       - Sub Osc made fully audible: range bumped to 0..1.0,
+         default raised to 0.30 (was 0.20). Sub stays a sine -1 octave.
+       - NEW Noise oscillator: white-noise level knob, mixed into OSC1
+         path (mono, summed equally to L/R). Great for risers, hats,
+         analog-style noise blends.
+
+
+PHASE B (next session — requires arranger rework)
+-------------------------------------------------
+
+[ ] 11. Automation clips visible in arranger lanes (FL-style)
+       Required work:
+        - New ClipKind::Automation in Models.h
+        - Per-clip vector of (beat, value) breakpoints + curve type
+        - Custom paint in ClipComponent for envelope curve
+        - New automation evaluator polled each block by EddieSynth
+        - Track-level "automation lane" target binding (which Eddie param)
+        - Right-click clip menu: pick parameter to automate
+
+[ ] 12. Drag-envelope-onto-knob assignment (Serum-style mod source drag)
+       Required work:
+        - Modulation matrix data layer in EddieSynthSettings
+          (source -> destination -> depth)
+        - Custom drag/drop overlay on knob LookAndFeel showing mod ring
+        - Source dock in panel: LFO / Mod Env / Macro 1 / Macro 2
+        - Drag from source -> any knob to bind; right-click ring to set depth
+
+KNOWN LIMITATION (worth flagging)
+---------------------------------
+Per-voice (polyphonic) filter envelopes are NOT yet implemented — the
+current filter env is a global post-mix envelope retriggered on each
+new note-on. Sounds great for sound-design sweeps and mono leads; for
+true per-voice filter (each polyphony voice has its own filter state)
+we'd need to track SVF state per-note across blocks. That's a Phase B+
+rewrite of the voice path.
