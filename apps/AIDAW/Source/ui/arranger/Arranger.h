@@ -249,6 +249,10 @@ private:
 
     void   recomputeClipBeatLengthsForTempo();
     void   performSliceAtBeat(ClipComponent& cc, double beat);
+    void   showClipContextMenu(ClipComponent& cc);
+    void   showAudioClipSettings(ClipModel& clip);
+    void   fitAudioClipToProjectTempo(ClipModel& clip);
+    void   resetAudioClipSettings(ClipModel& clip);
 
     // buttons
     void buttonClicked(juce::Button*) override;

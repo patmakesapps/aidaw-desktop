@@ -27,8 +27,10 @@ public:
             return;
 
         auto r = getLocalBounds().reduced(4);
-        g.setColour(selected ? juce::Colour(Theme::colSelect)
-                             : juce::Colour(Theme::colRowEven));
+        const auto rowColour = selected
+            ? juce::Colour(Theme::colBtnActive).interpolatedWith(juce::Colour(Theme::colAccent), 0.16f)
+            : juce::Colour(Theme::colRowEven);
+        g.setColour(rowColour);
         g.fillRoundedRectangle(r.toFloat(), 7.0f);
 
         g.setColour(juce::Colour(Theme::colText));
@@ -94,6 +96,8 @@ SampleBrowser::SampleBrowser(SamplePreviewSource& previewSource)
 
     list.setModel(this);
     list.setRowHeight(56);
+    list.setColour(juce::ListBox::backgroundColourId, juce::Colour(Theme::colBgPanel));
+    list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
     addAndMakeVisible(list);
 
     emptyState.setText("No samples found. Put packs in Samples or Documents/AIDAW/Samples.", juce::dontSendNotification);
@@ -207,6 +211,8 @@ void SampleBrowser::changeListenerCallback(juce::ChangeBroadcaster*)
     title.setColour(juce::Label::textColourId, juce::Colour(Theme::colText));
     search.setTextToShowWhenEmpty("Search samples...", juce::Colour(Theme::colTextDim));
     emptyState.setColour(juce::Label::textColourId, juce::Colour(Theme::colTextDim));
+    list.setColour(juce::ListBox::backgroundColourId, juce::Colour(Theme::colBgPanel));
+    list.setColour(juce::ListBox::outlineColourId, juce::Colours::transparentBlack);
     repaint();
     list.repaint();
 }

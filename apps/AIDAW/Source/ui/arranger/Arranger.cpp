@@ -5,6 +5,123 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+class AudioClipSettingsPanel final : public juce::Component,
+                                     private juce::Button::Listener
+{
+public:
+    AudioClipSettingsPanel(const ClipModel& clip, double bpm, std::function<void(const AudioClipSettingsPanel&)> onApplyIn)
+        : onApply(std::move(onApplyIn))
+    {
+        name.setText(clip.file.getFileName(), juce::dontSendNotification);
+        name.setJustificationType(juce::Justification::centredLeft);
+        name.setColour(juce::Label::textColourId, juce::Colour(Theme::colText));
+        name.setFont(juce::Font(18.0f));
+        addAndMakeVisible(name);
+
+        addLabel(modeLabel, "Mode");
+        mode.addItem("Stretch - keep pitch", 1);
+        mode.addItem("Resample - tape pitch", 2);
+        mode.setSelectedId(clip.stretchMode == ClipModel::StretchMode::Resample ? 2 : 1, juce::dontSendNotification);
+        addAndMakeVisible(mode);
+
+        addEditor(pitchLabel, pitch, "Pitch semitones", juce::String(clip.pitchSemitones, 2));
+        addEditor(sourceBpmLabel, sourceBpm, "Source BPM", juce::String(clip.sourceBpm > 0.0 ? clip.sourceBpm : bpm, 2));
+        addEditor(lengthLabel, length, "Timeline length beats", juce::String(clip.lengthBeats, 2));
+        addEditor(gainLabel, gain, "Gain dB", juce::String(clip.gainDb, 2));
+
+        apply.setButtonText("Apply");
+        cancel.setButtonText("Cancel");
+        apply.addListener(this);
+        cancel.addListener(this);
+        addAndMakeVisible(apply);
+        addAndMakeVisible(cancel);
+
+        setSize(520, 430);
+    }
+
+    int modeId() const { return mode.getSelectedId(); }
+    double pitchValue() const { return pitch.getText().getDoubleValue(); }
+    double sourceBpmValue() const { return sourceBpm.getText().getDoubleValue(); }
+    double lengthValue() const { return length.getText().getDoubleValue(); }
+    double gainValue() const { return gain.getText().getDoubleValue(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colour(Theme::colBgPanel));
+        g.setColour(juce::Colour(Theme::colHeaderDiv));
+        g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(0.5f), 8.0f, 1.0f);
+
+        g.setColour(juce::Colour(Theme::colText));
+        g.setFont(juce::Font(24.0f).boldened());
+        g.drawText("Audio clip settings", 24, 18, getWidth() - 48, 34, juce::Justification::centred);
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced(28);
+        r.removeFromTop(52);
+        name.setBounds(r.removeFromTop(32));
+        r.removeFromTop(16);
+
+        layoutField(r, modeLabel, mode);
+        layoutField(r, pitchLabel, pitch);
+        layoutField(r, sourceBpmLabel, sourceBpm);
+        layoutField(r, lengthLabel, length);
+        layoutField(r, gainLabel, gain);
+
+        r.removeFromTop(12);
+        auto buttons = r.removeFromTop(42);
+        const int bw = 118;
+        const int gap = 14;
+        const int x = buttons.getCentreX() - bw - gap / 2;
+        apply.setBounds(x, buttons.getY(), bw, 38);
+        cancel.setBounds(x + bw + gap, buttons.getY(), bw, 38);
+    }
+
+private:
+    void addLabel(juce::Label& label, const juce::String& text)
+    {
+        label.setText(text, juce::dontSendNotification);
+        label.setColour(juce::Label::textColourId, juce::Colour(Theme::colText));
+        label.setFont(juce::Font(13.0f).boldened());
+        addAndMakeVisible(label);
+    }
+
+    void addEditor(juce::Label& label, juce::TextEditor& editor, const juce::String& labelText, const juce::String& value)
+    {
+        addLabel(label, labelText);
+        editor.setText(value, juce::dontSendNotification);
+        editor.setInputRestrictions(8, "-0123456789.");
+        addAndMakeVisible(editor);
+    }
+
+    static void layoutField(juce::Rectangle<int>& r, juce::Label& label, juce::Component& field)
+    {
+        label.setBounds(r.removeFromTop(20));
+        field.setBounds(r.removeFromTop(34));
+        r.removeFromTop(10);
+    }
+
+    void buttonClicked(juce::Button* b) override
+    {
+        if (b == &apply && onApply)
+            onApply(*this);
+
+        if (auto* dw = findParentComponentOfClass<juce::DialogWindow>())
+            dw->exitModalState(b == &apply ? 1 : 0);
+    }
+
+    std::function<void(const AudioClipSettingsPanel&)> onApply;
+    juce::Label name;
+    juce::Label modeLabel, pitchLabel, sourceBpmLabel, lengthLabel, gainLabel;
+    juce::ComboBox mode;
+    juce::TextEditor pitch, sourceBpm, length, gain;
+    juce::TextButton apply, cancel;
+};
+}
+
 Arranger::Arranger()
     : canvas(tracks, bpmValue, snapToGrid, pixelsPerBeat, playheadBeats,
              [this]{ if (onProjectChanged) onProjectChanged(); })
@@ -125,7 +242,8 @@ void Arranger::setBPM(double bpm)
     pixelsPerBeat = ppbAt120 * (120.0 / bpmValue) * zoomScale;
     pixelsPerBeat = juce::jlimit(minPixelsPerBeat, maxPixelsPerBeat, pixelsPerBeat);
     zoomScale = pixelsPerBeat / (ppbAt120 * (120.0 / bpmValue));
-    if (std::abs(old - bpmValue) > 1e-6) { pushUndo(); recomputeClipBeatLengthsForTempo(); }
+    if (std::abs(old - bpmValue) > 1e-6 && onProjectChanged)
+        onProjectChanged();
     layoutClips(); repaint();
 }
 
@@ -219,8 +337,13 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
         clip.kind = ClipModel::Kind::Audio;
         clip.file = f;
         clip.startBeats  = cursorBeats;
-        clip.lengthBeats = ArrangerFileUtils::estimateBeatsFromFile(fm, f, bpmValue);
         clip.offsetBeats = 0.0;
+        clip.sourceBpm = ArrangerFileUtils::detectLoopBpm(fm, f);
+        if (clip.sourceBpm <= 0.0)
+            clip.sourceBpm = bpmValue;
+        clip.lengthBeats = ArrangerFileUtils::estimateBeatsFromFile(fm, f, clip.sourceBpm);
+        clip.stretchMode = ClipModel::StretchMode::Stretch;
+        clip.pitchSemitones = 0.0;
         clip.showImportSpinner = true;
 
         auto& lane = tracks[(size_t)laneIdx];
@@ -1219,20 +1342,24 @@ void Arranger::mouseDown(const juce::MouseEvent& e)
             return;
         }
 
-        // right-click deletes the clip (any tool)
+        if (cc->model.kind == ClipModel::Kind::Audio && e.getNumberOfClicks() >= 2)
+        {
+            selectedClip = &cc->model;
+            updateClipSelectionVisuals();
+            setSelectedLane(trackIndexForClip(cc->model));
+            showAudioClipSettings(cc->model);
+            return;
+        }
+
+        // right-click opens the clip menu (any tool)
         if (e.mods.isRightButtonDown())
         {
             rightClickRestoreArm = false;
 
             selectedClip = &cc->model;
             updateClipSelectionVisuals();
-
-            removeClip(&cc->model);
-            activeClip        = nullptr;
-            dragging          = DragMode::None;
-            pasteArm          = false;
-            startLaneIndex    = -1;
-            targetLaneIndex   = -1;
+            setSelectedLane(trackIndexForClip(cc->model));
+            showClipContextMenu(*cc);
             return;
         }
 
@@ -1626,6 +1753,202 @@ void Arranger::performSliceAtBeat(ClipComponent& cc, double beat)
             }
         }
     }
+}
+
+void Arranger::showClipContextMenu(ClipComponent& cc)
+{
+    juce::PopupMenu menu;
+    menu.addItem(1, "Clip settings...");
+
+    if (cc.model.kind == ClipModel::Kind::Audio)
+    {
+        juce::PopupMenu mode;
+        mode.addItem(10, "Stretch - keep pitch", true,
+                     cc.model.stretchMode == ClipModel::StretchMode::Stretch);
+        mode.addItem(11, "Resample - tape pitch", true,
+                     cc.model.stretchMode == ClipModel::StretchMode::Resample);
+        menu.addSubMenu("Time stretching mode", mode);
+
+        menu.addItem(2, "Fit to project tempo");
+        menu.addItem(3, "Pitch up 1 semitone");
+        menu.addItem(4, "Pitch down 1 semitone");
+        menu.addItem(5, cc.model.normalize ? "Normalize: on" : "Normalize: off");
+        menu.addItem(6, cc.model.muted ? "Unmute" : "Mute");
+        menu.addItem(7, "Reset clip controls");
+    }
+
+    menu.addSeparator();
+    menu.addItem(8, "Rename...");
+    menu.addItem(9, "Delete");
+
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&cc),
+        [this, clipId = cc.model.id] (int result)
+        {
+            if (result == 0)
+                return;
+
+            ClipModel* clip = nullptr;
+            for (auto& track : tracks)
+                for (auto& c : track.clips)
+                    if (c.id == clipId)
+                        clip = &c;
+
+            if (clip == nullptr)
+                return;
+
+            if (result == 9)
+            {
+                removeClip(clip);
+                selectedClip = nullptr;
+                return;
+            }
+
+            if (result == 1)
+            {
+                showAudioClipSettings(*clip);
+                return;
+            }
+
+            pushUndo();
+
+            switch (result)
+            {
+                case 2: fitAudioClipToProjectTempo(*clip); break;
+                case 3:
+                    clip->pitchSemitones = juce::jlimit(-24.0, 24.0, clip->pitchSemitones + 1.0);
+                    clip->stretchMode = ClipModel::StretchMode::Resample;
+                    break;
+                case 4:
+                    clip->pitchSemitones = juce::jlimit(-24.0, 24.0, clip->pitchSemitones - 1.0);
+                    clip->stretchMode = ClipModel::StretchMode::Resample;
+                    break;
+                case 5: clip->normalize = !clip->normalize; break;
+                case 6: clip->muted = !clip->muted; break;
+                case 7: resetAudioClipSettings(*clip); break;
+                case 8:
+                {
+                    if (!undoStack.empty())
+                        undoStack.pop_back();
+
+                    auto* w = new juce::AlertWindow("Rename clip", {}, juce::MessageBoxIconType::NoIcon);
+                    w->addTextEditor("name", clip->label.isNotEmpty() ? clip->label : clip->file.getFileNameWithoutExtension());
+                    w->addButton("OK", 1, juce::KeyPress(juce::KeyPress::returnKey));
+                    w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+                    w->enterModalState(true, juce::ModalCallbackFunction::create(
+                        [this, w, clipId] (int modalResult)
+                        {
+                            if (modalResult == 1)
+                            {
+                                ClipModel* renameClip = nullptr;
+                                for (auto& track : tracks)
+                                    for (auto& c : track.clips)
+                                        if (c.id == clipId)
+                                            renameClip = &c;
+
+                                if (renameClip != nullptr)
+                                {
+                                    pushUndo();
+                                    renameClip->label = w->getTextEditorContents("name");
+                                    refreshAll();
+                                    if (onProjectChanged) onProjectChanged();
+                                }
+                            }
+                            delete w;
+                        }), false);
+                    return;
+                }
+                case 10: clip->stretchMode = ClipModel::StretchMode::Stretch; clip->pitchSemitones = 0.0; break;
+                case 11: clip->stretchMode = ClipModel::StretchMode::Resample; break;
+                default: break;
+            }
+
+            refreshAll();
+            if (onProjectChanged) onProjectChanged();
+        });
+}
+
+void Arranger::showAudioClipSettings(ClipModel& clip)
+{
+    if (clip.kind != ClipModel::Kind::Audio)
+        return;
+
+    const auto clipId = clip.id;
+    auto* panel = new AudioClipSettingsPanel(clip, bpmValue,
+        [this, clipId] (const AudioClipSettingsPanel& settings)
+        {
+            ClipModel* clip = nullptr;
+            for (auto& track : tracks)
+                for (auto& c : track.clips)
+                    if (c.id == clipId)
+                        clip = &c;
+
+            if (clip == nullptr)
+                return;
+
+            pushUndo();
+
+            clip->stretchMode = settings.modeId() == 2
+                              ? ClipModel::StretchMode::Resample
+                              : ClipModel::StretchMode::Stretch;
+
+            clip->pitchSemitones = juce::jlimit(-24.0, 24.0, settings.pitchValue());
+            if (clip->stretchMode == ClipModel::StretchMode::Stretch)
+                clip->pitchSemitones = 0.0;
+
+            clip->sourceBpm = juce::jlimit(20.0, 300.0, settings.sourceBpmValue());
+            clip->lengthBeats = juce::jmax(1.0 / 16.0, settings.lengthValue());
+            clip->gainDb = juce::jlimit(-48.0, 24.0, settings.gainValue());
+
+            refreshAll();
+            if (onProjectChanged) onProjectChanged();
+        });
+
+    juce::DialogWindow::LaunchOptions options;
+    options.dialogTitle = {};
+    options.content.setOwned(panel);
+    options.dialogBackgroundColour = juce::Colour(Theme::colBgPanel);
+    options.escapeKeyTriggersCloseButton = true;
+    options.useNativeTitleBar = false;
+    options.resizable = false;
+    options.launchAsync();
+}
+
+void Arranger::fitAudioClipToProjectTempo(ClipModel& clip)
+{
+    if (!clip.file.existsAsFile())
+        return;
+
+    if (clip.sourceBpm <= 0.0)
+        clip.sourceBpm = ArrangerFileUtils::detectLoopBpm(fm, clip.file);
+    if (clip.sourceBpm <= 0.0)
+        clip.sourceBpm = bpmValue;
+
+    const double secs = ArrangerFileUtils::secondsOfFile(fm, clip.file);
+    if (secs <= 0.0)
+        return;
+
+    const double beatsAtSourceTempo = secs * clip.sourceBpm / 60.0;
+    double rounded = std::round(beatsAtSourceTempo * 4.0) / 4.0;
+    const double bars = rounded / 4.0;
+    const double nearestWholeBars = std::round(bars);
+    if (std::abs(nearestWholeBars - bars) < 0.08)
+        rounded = nearestWholeBars * 4.0;
+
+    clip.lengthBeats = juce::jmax(1.0, rounded);
+    clip.stretchMode = ClipModel::StretchMode::Stretch;
+    clip.pitchSemitones = 0.0;
+}
+
+void Arranger::resetAudioClipSettings(ClipModel& clip)
+{
+    clip.pitchSemitones = 0.0;
+    clip.gainDb = 0.0;
+    clip.normalize = false;
+    clip.muted = false;
+    clip.reverse = false;
+    clip.stretchMode = ClipModel::StretchMode::Stretch;
+    if (clip.file.existsAsFile())
+        clip.lengthBeats = ArrangerFileUtils::estimateBeatsFromFile(fm, clip.file, bpmValue);
 }
 
 /*** buttons ***/

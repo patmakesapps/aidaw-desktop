@@ -42,6 +42,7 @@ private:
     std::vector<std::unique_ptr<juce::AudioFormatReaderSource>> sources;
     std::vector<std::unique_ptr<juce::ResamplingAudioSource>> resamplers;
     std::vector<double> resampleRatios;
+    std::vector<float> clipGains;
     std::vector<ClipModel*> clipModels;
 
     juce::AudioBuffer<float> scratch;

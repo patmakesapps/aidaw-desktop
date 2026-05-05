@@ -67,6 +67,7 @@ void TimelineAudioSource::releaseResources()
     sources.clear();
     clipModels.clear();
     resampleRatios.clear();
+    clipGains.clear();
     scratch.setSize (0, 0);
 }
 
@@ -93,6 +94,9 @@ void TimelineAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInfo&
     for (size_t i = 0; i < sources.size(); ++i)
     {
         auto* model = clipModels[i];
+        if (model->muted)
+            continue;
+
         const double secPerBeat = 60.0 / juce::jmax (1.0, bpmRef);
 
         const int64 clipStart = (int64) std::floor (model->startBeats * secPerBeat * deviceSampleRate);
@@ -121,6 +125,10 @@ void TimelineAudioSource::getNextAudioBlock (const juce::AudioSourceChannelInfo&
         juce::AudioSourceChannelInfo segInfo (&scratch, 0, segLen);
         resamplers[i]->getNextAudioBlock (segInfo);
 
+        const float gain = clipGains[i];
+        if (std::abs (gain - 1.0f) > 0.0001f)
+            scratch.applyGain (0, segLen, gain);
+
         for (int ch = 0; ch < info.buffer->getNumChannels(); ++ch)
         {
             const float* src = scratch.getReadPointer (juce::jmin (ch, scratch.getNumChannels() - 1));
@@ -138,6 +146,7 @@ void TimelineAudioSource::buildReaders()
     sources.clear();
     clipModels.clear();
     resampleRatios.clear();
+    clipGains.clear();
 
     for (auto& track : tracks)
     {
@@ -153,14 +162,41 @@ void TimelineAudioSource::buildReaders()
             {
                 auto src = std::make_unique<juce::AudioFormatReaderSource> (raw, true);
                 auto res = std::make_unique<juce::ResamplingAudioSource> (src.get(), false, 2);
-                const double ratio = raw->sampleRate / deviceSampleRate;
+
+                double ratio = raw->sampleRate / deviceSampleRate;
+                if (clip.stretchMode == ClipModel::StretchMode::Resample)
+                {
+                    const double fileSeconds = raw->sampleRate > 0.0
+                                             ? (double) raw->lengthInSamples / raw->sampleRate
+                                             : 0.0;
+                    const double timelineSeconds = clip.lengthBeats * 60.0 / juce::jmax (1.0, bpmRef);
+                    if (fileSeconds > 0.0 && timelineSeconds > 0.0)
+                        ratio *= fileSeconds / timelineSeconds;
+                }
+
+                if (clip.stretchMode == ClipModel::StretchMode::Resample)
+                    ratio *= std::pow (2.0, clip.pitchSemitones / 12.0);
+
                 res->setResamplingRatio (std::max (0.01, ratio));
                 res->prepareToPlay (512, deviceSampleRate);
+
+                float gain = juce::Decibels::decibelsToGain ((float) clip.gainDb);
+                if (clip.normalize)
+                {
+                    juce::Range<float> levels[2];
+                    raw->readMaxLevels (0, raw->lengthInSamples, levels, 2);
+                    float peak = 0.0f;
+                    for (auto& level : levels)
+                        peak = juce::jmax (peak, std::abs (level.getStart()), std::abs (level.getEnd()));
+                    if (peak > 0.0001f)
+                        gain *= 1.0f / peak;
+                }
 
                 clipModels.push_back (&clip);
                 sources.emplace_back (std::move (src));
                 resamplers.emplace_back (std::move (res));
                 resampleRatios.push_back (ratio);
+                clipGains.push_back (gain);
             }
         }
     }

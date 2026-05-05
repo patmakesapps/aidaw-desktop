@@ -14,12 +14,20 @@ static inline juce::String U8(const char8_t* s) {
 
 struct ClipModel {
     enum class Kind { Audio, MidiLoop };
+    enum class StretchMode { Stretch, Resample };
 
     juce::String id;
     Kind kind { Kind::Audio };
     double startBeats  = 0.0;   // timeline position
     double lengthBeats = 4.0;   // duration on timeline
     double offsetBeats = 0.0;   // starting offset inside source
+    double sourceBpm = 0.0;      // detected/typed source tempo, used by fit-to-tempo
+    double pitchSemitones = 0.0; // clip pitch control; resample mode changes playback rate
+    double gainDb = 0.0;
+    StretchMode stretchMode { StretchMode::Stretch };
+    bool reverse = false;
+    bool normalize = false;
+    bool muted = false;
     juce::File file;
     uint32 loopId { 0 };
     juce::String label;

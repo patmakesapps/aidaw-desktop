@@ -124,8 +124,11 @@ void ClipComponent::paint(juce::Graphics& g)
     {
         g.setColour(juce::Colour(0xFFB4B4B4));
 
-        // Map beats -> seconds using current BPM
-        const double secPerBeat = 60.0 / juce::jmax(1.0, bpmRef);
+        // Stretch mode maps timeline beats to the source tempo so the displayed
+        // waveform does not shift when the project tempo changes.
+        const double sourceBpm = model.sourceBpm > 0.0 ? model.sourceBpm : bpmRef;
+        const double secPerBeat = 60.0 / juce::jmax(1.0,
+            model.stretchMode == ClipModel::StretchMode::Stretch ? sourceBpm : bpmRef);
 
         const double startSecInFile = juce::jmax(0.0, model.offsetBeats * secPerBeat);
         const double endSecInFile   = startSecInFile + (model.lengthBeats * secPerBeat);
@@ -172,6 +175,30 @@ void ClipComponent::paint(juce::Graphics& g)
                               juce::PathStrokeType::curved,
                               juce::PathStrokeType::rounded));
         }
+
+        const auto title = model.label.isNotEmpty()
+                         ? model.label
+                         : model.file.getFileNameWithoutExtension();
+        g.setColour(juce::Colours::white.withAlpha(0.92f));
+        g.setFont(juce::Font(12.0f).boldened());
+        g.drawText(title, getLocalBounds().reduced(10, 6),
+                   juce::Justification::topLeft, true);
+
+        juce::String badges;
+        badges << (model.stretchMode == ClipModel::StretchMode::Stretch ? "Stretch" : "Resample");
+        if (std::abs(model.pitchSemitones) > 0.01)
+            badges << "  " << (model.pitchSemitones > 0.0 ? "+" : "") << juce::String(model.pitchSemitones, 1) << " st";
+        if (model.normalize)
+            badges << "  Norm";
+        if (model.muted)
+            badges << "  Muted";
+
+        g.setColour(juce::Colours::black.withAlpha(0.38f));
+        auto badgeRect = getLocalBounds().reduced(8, 6).withTrimmedTop(18).withHeight(18);
+        g.fillRoundedRectangle(badgeRect.toFloat(), 4.0f);
+        g.setColour(juce::Colours::white.withAlpha(0.78f));
+        g.setFont(10.0f);
+        g.drawText(badges, badgeRect.reduced(6, 0), juce::Justification::centredLeft, true);
     }
     else if (model.kind == ClipModel::Kind::Audio && model.file.existsAsFile())
     {

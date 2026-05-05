@@ -446,6 +446,12 @@ bool MainComponent::saveProjectToFile(const juce::File& file)
             clipXml->setAttribute("startBeats", clip.startBeats);
             clipXml->setAttribute("lengthBeats", clip.lengthBeats);
             clipXml->setAttribute("offsetBeats", clip.offsetBeats);
+            clipXml->setAttribute("sourceBpm", clip.sourceBpm);
+            clipXml->setAttribute("pitchSemitones", clip.pitchSemitones);
+            clipXml->setAttribute("gainDb", clip.gainDb);
+            clipXml->setAttribute("stretchMode", clip.stretchMode == ClipModel::StretchMode::Resample ? "resample" : "stretch");
+            clipXml->setAttribute("normalize", clip.normalize);
+            clipXml->setAttribute("muted", clip.muted);
             clipXml->setAttribute("file", clip.file.getFullPathName());
             clipXml->setAttribute("loopId", (int) clip.loopId);
             clipXml->setAttribute("label", clip.label);
@@ -519,6 +525,14 @@ bool MainComponent::loadProjectFromFile(const juce::File& file)
                 clip.startBeats = clipXml->getDoubleAttribute("startBeats", 0.0);
                 clip.lengthBeats = clipXml->getDoubleAttribute("lengthBeats", 4.0);
                 clip.offsetBeats = clipXml->getDoubleAttribute("offsetBeats", 0.0);
+                clip.sourceBpm = clipXml->getDoubleAttribute("sourceBpm", 0.0);
+                clip.pitchSemitones = clipXml->getDoubleAttribute("pitchSemitones", 0.0);
+                clip.gainDb = clipXml->getDoubleAttribute("gainDb", 0.0);
+                clip.stretchMode = clipXml->getStringAttribute("stretchMode") == "resample"
+                                 ? ClipModel::StretchMode::Resample
+                                 : ClipModel::StretchMode::Stretch;
+                clip.normalize = clipXml->getBoolAttribute("normalize", false);
+                clip.muted = clipXml->getBoolAttribute("muted", false);
                 clip.file = juce::File(clipXml->getStringAttribute("file"));
                 clip.loopId = (uint32) clipXml->getIntAttribute("loopId", 0);
                 clip.label = clipXml->getStringAttribute("label");

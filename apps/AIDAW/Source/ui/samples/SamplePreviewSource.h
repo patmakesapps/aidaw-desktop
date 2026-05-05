@@ -20,10 +20,10 @@ public:
 
 private:
     juce::AudioFormatManager formatManager;
-    std::unique_ptr<juce::AudioFormatReader> reader;
+    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
+    std::unique_ptr<juce::ResamplingAudioSource> resampler;
     juce::CriticalSection lock;
     juce::File currentFile;
-    int64 readPosition { 0 };
     bool playing { false };
 
     double lastSampleRate { 44100.0 };

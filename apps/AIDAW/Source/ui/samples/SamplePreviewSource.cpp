@@ -18,15 +18,18 @@ void SamplePreviewSource::previewFile(const juce::File& file)
     {
         const juce::ScopedLock sl(lock);
         playing = false;
-        readPosition = 0;
 
-        if (file == currentFile && reader != nullptr)
+        if (file == currentFile && readerSource != nullptr)
         {
+            readerSource->setNextReadPosition(0);
+            if (resampler != nullptr)
+                resampler->flushBuffers();
             playing = true;
             return;
         }
 
-        reader.reset();
+        resampler.reset();
+        readerSource.reset();
         currentFile = {};
     }
 
@@ -39,9 +42,12 @@ void SamplePreviewSource::previewFile(const juce::File& file)
 
     {
         const juce::ScopedLock sl(lock);
-        reader = std::move(newReader);
+        const double sourceRate = newReader->sampleRate;
+        readerSource = std::make_unique<juce::AudioFormatReaderSource>(newReader.release(), true);
+        resampler = std::make_unique<juce::ResamplingAudioSource>(readerSource.get(), false, 2);
+        resampler->setResamplingRatio(sourceRate > 0.0 && lastSampleRate > 0.0 ? sourceRate / lastSampleRate : 1.0);
+        resampler->prepareToPlay(512, lastSampleRate);
         currentFile = file;
-        readPosition = 0;
         playing = true;
     }
 }
@@ -50,7 +56,6 @@ void SamplePreviewSource::stop()
 {
     const juce::ScopedLock sl(lock);
     playing = false;
-    readPosition = 0;
     currentFile = {};
 }
 
@@ -59,14 +64,19 @@ void SamplePreviewSource::prepareToPlay(int samplesPerBlockExpected, double samp
     juce::ignoreUnused(samplesPerBlockExpected);
     const juce::ScopedLock sl(lock);
     lastSampleRate = sampleRate;
+    if (resampler != nullptr && readerSource != nullptr)
+    {
+        resampler->setResamplingRatio(readerSource->getAudioFormatReader()->sampleRate / juce::jmax(1.0, lastSampleRate));
+        resampler->prepareToPlay(samplesPerBlockExpected, lastSampleRate);
+    }
 }
 
 void SamplePreviewSource::releaseResources()
 {
     const juce::ScopedLock sl(lock);
-    reader.reset();
+    resampler.reset();
+    readerSource.reset();
     playing = false;
-    readPosition = 0;
     currentFile = {};
 }
 
@@ -75,27 +85,16 @@ void SamplePreviewSource::getNextAudioBlock(const juce::AudioSourceChannelInfo& 
     info.clearActiveBufferRegion();
 
     const juce::ScopedLock sl(lock);
-    if (! playing || reader == nullptr)
+    if (! playing || readerSource == nullptr || resampler == nullptr)
         return;
 
-    const auto samplesRemaining = reader->lengthInSamples - readPosition;
-    const int samplesToRead = (int) juce::jmin<int64>(info.numSamples, juce::jmax<int64>(0, samplesRemaining));
-    if (samplesToRead <= 0)
+    resampler->getNextAudioBlock(info);
+
+    if (readerSource->getNextReadPosition() >= readerSource->getTotalLength())
     {
         playing = false;
         return;
     }
-
-    reader->read(info.buffer,
-                 info.startSample,
-                 samplesToRead,
-                 readPosition,
-                 true,
-                 true);
-    readPosition += samplesToRead;
-
-    if (samplesToRead < info.numSamples)
-        playing = false;
 }
 
 } // namespace aidaw
