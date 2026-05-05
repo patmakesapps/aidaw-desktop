@@ -72,6 +72,12 @@ target_sources(AIDAW PRIVATE
     apps/AIDAW/Source/ui/synth/EddieSynthPanel.h
     apps/AIDAW/Source/ui/synth/EddieSynthPanel.cpp
 
+    # ---- Samples ----
+    apps/AIDAW/Source/ui/samples/SamplePreviewSource.h
+    apps/AIDAW/Source/ui/samples/SamplePreviewSource.cpp
+    apps/AIDAW/Source/ui/samples/SampleBrowser.h
+    apps/AIDAW/Source/ui/samples/SampleBrowser.cpp
+
     # ---- Loops ----
     apps/AIDAW/Source/ui/loops/LoopsRegistry.h
     apps/AIDAW/Source/ui/loops/LoopsModal.h

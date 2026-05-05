@@ -27,8 +27,10 @@ Arranger::Arranger()
 
     btnLoops.addListener(this); btnLoops.setWantsKeyboardFocus(false); addAndMakeVisible(btnLoops);
     btnEddie.addListener(this); btnEddie.setWantsKeyboardFocus(false); addAndMakeVisible(btnEddie);
+    btnSamples.addListener(this); btnSamples.setWantsKeyboardFocus(false); addAndMakeVisible(btnSamples);
     btnLoops.setTooltip("Open Loops (create/select)");
     btnEddie.setTooltip("Open Eddie synth");
+    btnSamples.setTooltip("Open sample packs");
 
     btnLoopIcon.setAccentTint(true);
     btnFrameAll.setAccentTint(true);
@@ -89,6 +91,7 @@ Arranger::~Arranger()
         b->removeListener(this);
     btnLoops.removeListener(this);
     btnEddie.removeListener(this);
+    btnSamples.removeListener(this);
 }
 
 void Arranger::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -264,12 +267,25 @@ void Arranger::filesDropped(const juce::StringArray& files, int x, int y)
 
 bool Arranger::isInterestedInDragSource(const SourceDetails& dragSourceDetails)
 {
-    return dragSourceDetails.description.toString().startsWith("aidaw-loop:");
+    const auto desc = dragSourceDetails.description.toString();
+    return desc.startsWith("aidaw-loop:") || desc.startsWith("aidaw-sample:");
 }
 
 void Arranger::itemDropped(const SourceDetails& dragSourceDetails)
 {
     const auto desc = dragSourceDetails.description.toString();
+    if (desc.startsWith("aidaw-sample:"))
+    {
+        const juce::File file(desc.fromFirstOccurrenceOf(":", false, false));
+        if (! file.existsAsFile())
+            return;
+
+        juce::StringArray files;
+        files.add(file.getFullPathName());
+        filesDropped(files, dragSourceDetails.localPosition.x, dragSourceDetails.localPosition.y);
+        return;
+    }
+
     if (! desc.startsWith("aidaw-loop:"))
         return;
 
@@ -313,7 +329,8 @@ void Arranger::resized()
     btnZoomIn  .setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(12);
     btnLoopIcon.setBounds(tools.removeFromLeft(ib)); tools.removeFromLeft(4);
     btnLoops   .setBounds(tools.removeFromLeft(72)); tools.removeFromLeft(6);
-    btnEddie   .setBounds(tools.removeFromLeft(74));
+    btnEddie   .setBounds(tools.removeFromLeft(74)); tools.removeFromLeft(6);
+    btnSamples .setBounds(tools.removeFromLeft(92));
 
     view.setBounds(r);
 
@@ -1624,4 +1641,5 @@ void Arranger::buttonClicked(juce::Button* b)
     else if (b == &btnZoomOut) zoomAtViewportCenter(-1.0);
     else if (b == &btnLoopIcon || b == &btnLoops) { if (onLoopsClicked) onLoopsClicked(); }
     else if (b == &btnEddie)   { if (onEddieClicked) onEddieClicked(); }
+    else if (b == &btnSamples) { if (onSamplesClicked) onSamplesClicked(); }
 }

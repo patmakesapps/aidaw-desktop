@@ -6,6 +6,7 @@ AIDAW is a JUCE/CMake desktop music app prototype. It combines a composer timeli
 
 - Composer timeline with tracks, clip movement/resizing, snapping, zooming, and playhead control
 - Drag-and-drop audio clips into the arranger
+- Built-in sample browser for local/free sample packs, with click-to-preview and drag-to-arranger support
 - MIDI loop creation, editing, looping, and reuse in the composer
 - Eddie synth playback for MIDI loops, with waveform and sound controls
 - Project save/open support using `.aidaw` XML project files
@@ -24,6 +25,7 @@ The mixer screen is currently a placeholder.
 |       +-- app/         # Main window and top-level app component
 |       +-- audio/       # Metronome, timeline audio source, Eddie synth
 |       +-- ui/          # Arranger, MIDI editor, mixer, shell, shared UI
++-- Samples/             # Local sample packs scanned by the sample browser
 +-- third_party/juce/    # JUCE submodule
 +-- CMakeLists.txt       # Root CMake project
 +-- LICENSE
@@ -81,6 +83,7 @@ cmake --build build --config Debug
 - The project uses `juce_add_gui_app` and `juce_generate_juce_header` from JUCE's CMake API.
 - App sources are explicitly listed in the root `CMakeLists.txt`; add new `.cpp` files there when creating new source files.
 - Embedded assets are defined in the `AIDAWAssets` binary data target.
+- Sample packs are scanned from `Samples/`, from a sibling `Samples/` folder beside the built app, and from `Documents/AIDAW/Samples` or the user's app data folder. This keeps the local pack model compatible with future downloaded marketplace packs.
 - Build outputs are ignored under `build/` and should not be committed.
 - Project files saved from the app use the `.aidaw` extension.
 

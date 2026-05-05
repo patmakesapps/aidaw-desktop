@@ -35,6 +35,7 @@ public:
 
     // open the Eddie synth panel from the Arranger toolbar
     std::function<void()>        onEddieClicked;
+    std::function<void()>        onSamplesClicked;
 
     void setBPM(double bpm);
     void setSnap(bool on);
@@ -103,6 +104,7 @@ private:
     IconButton btnLoopIcon { "Open Loops",          Icons::loopGlyph(), IconButton::Style::Stroked };
     juce::TextButton btnLoops { "Loops" };
     juce::TextButton btnEddie { "Eddie" };
+    juce::TextButton btnSamples { "Samples" };
 
     ArrangerTool tool { ArrangerTool::Pointer };
 

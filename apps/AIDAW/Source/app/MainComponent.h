@@ -8,6 +8,8 @@
 #include "../ui/arranger/Arranger.h"
 #include "../ui/midi/MidiEditor.h"
 #include "../ui/mixer/MixerComponent.h"
+#include "../ui/samples/SampleBrowser.h"
+#include "../ui/samples/SamplePreviewSource.h"
 #include "../ui/shared/AIDAWLook.h"
 #include "../ui/shell/TopBar.h"
 #include "../ui/synth/EddieSynthPanel.h"
@@ -16,6 +18,7 @@ namespace aidaw
 {
 
 class MainComponent : public juce::Component,
+                      public juce::DragAndDropContainer,
                       public juce::ChangeListener,
                       private juce::Timer
 {
@@ -35,6 +38,7 @@ private:
     void stopTransport();
     void openLoopsModal();
     void openEddiePanel();
+    void openSampleBrowser();
     void openLoopInMidiEditor(uint32 loopId);
     void addLoopToComposer(uint32 loopId);
     void rebuildEddiePlaybackNotes();
@@ -48,6 +52,8 @@ private:
     Arranger arranger;
     MidiEditor midi;
     MixerComponent mixerUI;
+    SamplePreviewSource samplePreview;
+    SampleBrowser sampleBrowser;
     EddieSynthPanel eddiePanel;
 
     juce::MixerAudioSource& mixer;

@@ -11,7 +11,8 @@ namespace aidaw
 {
 
 MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metro)
-    : mixer (mix), metronome (metro), timeline (arranger.tracks, currentBpm)
+    : sampleBrowser (samplePreview),
+      mixer (mix), metronome (metro), timeline (arranger.tracks, currentBpm)
 {
     setOpaque (true);
     juce::LookAndFeel::setDefaultLookAndFeel(&look);
@@ -21,6 +22,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     addAndMakeVisible (arranger);
     addAndMakeVisible (midi);
     addAndMakeVisible (mixerUI);
+    addChildComponent (sampleBrowser);
     addChildComponent (eddiePanel);
     midi.setVisible (false);
     mixerUI.setVisible (false);
@@ -30,6 +32,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     mixer.addInputSource (&metronome, false);
     mixer.addInputSource (&timeline, false);
     mixer.addInputSource (&eddie, false);
+    mixer.addInputSource (&samplePreview, false);
 
     arranger.onProjectChanged = [this]
     {
@@ -171,6 +174,7 @@ MainComponent::MainComponent (juce::MixerAudioSource& mix, MetronomeSource& metr
     midi.onOpenSynth = [this] { openEddiePanel(); };
     arranger.onLoopsClicked = [this] { openLoopsModal(); };
     arranger.onEddieClicked = [this] { openEddiePanel(); };
+    arranger.onSamplesClicked = [this] { openSampleBrowser(); };
     arranger.onOpenMidiLoop = [this] (uint32 loopId) { openLoopInMidiEditor(loopId); };
 
     setWantsKeyboardFocus (true);
@@ -184,6 +188,7 @@ MainComponent::~MainComponent()
     ThemeManager::get().removeChangeListener(this);
     juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
     mixer.removeInputSource (&eddie);
+    mixer.removeInputSource (&samplePreview);
     mixer.removeInputSource (&timeline);
     mixer.removeInputSource (&metronome);
 }
@@ -207,6 +212,7 @@ void MainComponent::resized()
     arranger.setBounds (body);
     midi.setBounds (body);
     mixerUI.setBounds (body);
+    sampleBrowser.setBounds (body.removeFromRight (juce::jmin (420, juce::jmax (320, getWidth() / 3))));
     eddiePanel.setBounds (body.reduced (80, 42));
 }
 
@@ -282,6 +288,7 @@ void MainComponent::setTransportPlaying (bool shouldPlay)
 void MainComponent::stopTransport()
 {
     playing = false;
+    samplePreview.stop();
     metronome.setPlaying (false);
     metronome.reset();
     timeline.setPlaying (false);
@@ -613,6 +620,13 @@ void MainComponent::openEddiePanel()
     eddiePanel.setSettings (eddie.getSettings());
     eddiePanel.setVisible (true);
     eddiePanel.toFront (true);
+}
+
+void MainComponent::openSampleBrowser()
+{
+    sampleBrowser.rescan();
+    sampleBrowser.setVisible (true);
+    sampleBrowser.toFront (true);
 }
 
 } // namespace aidaw

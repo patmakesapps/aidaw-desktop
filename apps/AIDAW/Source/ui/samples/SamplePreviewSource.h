@@ -20,11 +20,12 @@ public:
 
 private:
     juce::AudioFormatManager formatManager;
-    juce::AudioTransportSource transport;
-    std::unique_ptr<juce::AudioFormatReaderSource> readerSource;
+    std::unique_ptr<juce::AudioFormatReader> reader;
     juce::CriticalSection lock;
+    juce::File currentFile;
+    int64 readPosition { 0 };
+    bool playing { false };
 
-    int lastBlockSize { 512 };
     double lastSampleRate { 44100.0 };
 };
 
