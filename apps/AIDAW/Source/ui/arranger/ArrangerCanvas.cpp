@@ -108,10 +108,19 @@ void ArrangerCanvas::paint(juce::Graphics& g)
         g.fillRect(x, y - 1, w, 2);
     }
 
-    // Playhead (unchanged)
     const int xPH = xFromBeats(playheadBeatsRef);
     g.setColour(juce::Colour(Theme::colPlayhead));
     g.fillRect(xPH - 1, 0, 2, H);
+
+    auto handle = juce::Rectangle<float>((float) xPH - 9.0f, 2.0f, 18.0f, 15.0f);
+    g.setColour(juce::Colour(Theme::colPlayhead).withAlpha(0.96f));
+    g.fillRoundedRectangle(handle, 4.0f);
+    g.setColour(juce::Colour(Theme::colBgMain).withAlpha(0.50f));
+    for (int i = 0; i < 3; ++i)
+    {
+        const float gx = handle.getX() + 5.0f + (float) i * 4.0f;
+        g.fillRoundedRectangle(gx, handle.getY() + 4.0f, 1.4f, handle.getHeight() - 8.0f, 0.7f);
+    }
 
     // Marquee uses themed colours (keeps the nice blue)
     if (selectionRect)

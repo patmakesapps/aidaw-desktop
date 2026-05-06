@@ -75,6 +75,8 @@ MidiEditor::MidiEditor()
     // Viewport: only middle mouse pans.
     view.setScrollBarsShown(true, true);
     view.setScrollOnDragEnabled(false);
+    view.getHorizontalScrollBar().setAutoHide (false);
+    view.getVerticalScrollBar().setAutoHide (false);
 
     // Bridge refs
     c->onLayoutRequest = [this]{ refreshContentSize(); };
@@ -299,7 +301,11 @@ void MidiEditor::paintOverChildren(juce::Graphics& g)
     if (!c)
         return;
 
-    const auto vr = view.getBounds();
+    auto vr = view.getBounds();
+    constexpr int reservedScrollbarSize = 18;
+    vr.removeFromBottom (reservedScrollbarSize);
+    vr.removeFromRight (reservedScrollbarSize);
+
     const int vpX = view.getViewPositionX();
     const int vpY = view.getViewPositionY();
 
